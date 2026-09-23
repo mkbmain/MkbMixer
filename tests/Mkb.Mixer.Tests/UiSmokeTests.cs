@@ -76,7 +76,11 @@ public class UiSmokeTests
                         ?? Path.Combine(Path.GetTempPath(), "mkb-mixer-ui.png");
         using Bitmap frame = window.CaptureRenderedFrame()
                              ?? throw new InvalidOperationException("no frame captured");
+        // The BitmapEncoderOptions overload is the non-obsolete one, but the plain
+        // path overload is all this snapshot needs.
+#pragma warning disable CS0618
         frame.Save(output);
+#pragma warning restore CS0618
 
         Assert.True(new FileInfo(output).Length > 10_000, "rendered frame looks empty");
     });
