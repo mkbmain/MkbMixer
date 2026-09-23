@@ -62,6 +62,13 @@
           <!-- Folder tree, expanded lazily -->
           <TreeView ItemsSource="{Binding Roots}"
                     SelectedItem="{Binding SelectedFolder}">
+            <TreeView.Styles>
+              <!-- Without this the node's IsExpanded never fires, so children are
+                   never loaded and the tree cannot be navigated. -->
+              <Style Selector="TreeViewItem" x:DataType="vm:FolderNode">
+                <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}" />
+              </Style>
+            </TreeView.Styles>
             <TreeView.ItemTemplate>
               <TreeDataTemplate ItemsSource="{Binding Children}">
                 <TextBlock Text="{Binding Name}" FontSize="12" />

@@ -15,7 +15,6 @@ namespace Mkb.Mixer.App.ViewModels;
 /// </remarks>
 public sealed partial class FolderNode : ObservableObject
 {
-    private static readonly FolderNode Placeholder = new("…", isPlaceholder: true);
     private bool _loaded;
 
     public FolderNode(string path) : this(path, isPlaceholder: false) { }
@@ -26,8 +25,10 @@ public sealed partial class FolderNode : ObservableObject
         IsPlaceholder = isPlaceholder;
         Name = isPlaceholder ? path : FriendlyName(path);
 
+        // A fresh instance per node: a TreeView cannot place one item under two
+        // parents, which breaks container generation and selection.
         if (!isPlaceholder && MightHaveChildren())
-            Children.Add(Placeholder);
+            Children.Add(new FolderNode("…", isPlaceholder: true));
     }
 
     /// <summary>Roots read better as "Home" and "Filesystem" than as "root" and "/".</summary>

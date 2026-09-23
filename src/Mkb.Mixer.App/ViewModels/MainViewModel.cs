@@ -98,7 +98,10 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
 
     partial void OnSelectedFolderChanged(FolderNode? value)
     {
-        if (value is not null) _ = LoadFolderAsync(value.Path);
+        // The "…" placeholder stands in for unexpanded children and is not a real
+        // path; browsing it would fail with "could not find a part of the path".
+        if (value is { IsPlaceholder: false })
+            _ = LoadFolderAsync(value.Path);
     }
 
     partial void OnSearchTextChanged(string value) => ApplyFilter();

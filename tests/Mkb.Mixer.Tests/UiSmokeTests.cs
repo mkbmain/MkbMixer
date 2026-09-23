@@ -72,6 +72,16 @@ public class UiSmokeTests
         window.Show();
         Dispatcher.UIThread.RunJobs();
 
+        // An expanded folder tree, so the snapshot exercises navigation too.
+        string demo = Path.Combine(Path.GetTempPath(), "mkb-demo-library");
+        foreach (var sub in new[] { "Albums", "Albums/1999", "Singles", "Mixes" })
+            Directory.CreateDirectory(Path.Combine(demo, sub));
+        var root = new FolderNode(demo) { IsExpanded = true };
+        root.Children.First(c => c.Name == "Albums").IsExpanded = true;
+        vm.Roots.Insert(0, root);
+        Dispatcher.UIThread.RunJobs();
+        window.UpdateLayout();
+
         string output = Environment.GetEnvironmentVariable("MKB_UI_SNAPSHOT")
                         ?? Path.Combine(Path.GetTempPath(), "mkb-mixer-ui.png");
         using Bitmap frame = window.CaptureRenderedFrame()
