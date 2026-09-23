@@ -7,7 +7,7 @@ namespace Mkb.Mixer.Audio;
 /// <summary>A single deck backed by a SoundFlow <see cref="SoundPlayer"/>.</summary>
 internal sealed class SoundFlowDeck : IDeck
 {
-    private readonly MiniAudioEngine _engine;
+    private readonly MiniAudioEngine? _engine;
     private readonly SoundFlow.Components.Mixer? _output;
     private readonly Lock _gate = new();
 
@@ -18,7 +18,7 @@ internal sealed class SoundFlowDeck : IDeck
     private float _tempo = 1f;
     private bool _muted;
 
-    public SoundFlowDeck(DeckId id, MiniAudioEngine engine, SoundFlow.Components.Mixer? output)
+    public SoundFlowDeck(DeckId id, MiniAudioEngine? engine, SoundFlow.Components.Mixer? output)
     {
         Id = id;
         _engine = engine;
@@ -81,6 +81,11 @@ internal sealed class SoundFlowDeck : IDeck
         lock (_gate)
         {
             TearDownPlayer();
+            Track = track;
+
+            // With no audio context there is nothing to decode into; the track is
+            // still recorded so the UI shows what is cued up.
+            if (_engine is null) return;
 
             _stream = File.OpenRead(track.Path);
             _provider = new StreamDataProvider(_engine, SoundFlowAudioEngine.Format, _stream);
@@ -92,8 +97,6 @@ internal sealed class SoundFlowDeck : IDeck
             };
             _player.PlaybackEnded += OnPlaybackEnded;
             _output?.AddComponent(_player);
-
-            Track = track;
         }
     }
 

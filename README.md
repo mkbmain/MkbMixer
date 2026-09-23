@@ -20,6 +20,34 @@ the next track in as the current one runs out — is unchanged.
 dotnet run --project src/Mkb.Mixer.App
 ```
 
+## If playback is silent
+
+The status bar's bottom-right corner always shows the audio route in use, for
+example `♪ PulseAudio — Built-in Audio`, or `♪ no audio output` if no device could
+be opened.
+
+To see what your machine offers:
+
+```bash
+dotnet run --project src/Mkb.Mixer.App -- --audio-info
+```
+
+That reports every backend miniaudio was compiled with, whether its context
+initialises, how many playback devices it sees, and whether a device actually
+opens. To force one:
+
+```bash
+dotnet run --project src/Mkb.Mixer.App -- --backend=PulseAudio
+```
+
+Valid values on Linux are `PulseAudio`, `Jack`, `Alsa` and `Oss`.
+
+ALSA errors such as `unable to open slave` or `Unknown PCM dmix` usually mean
+PulseAudio or PipeWire already holds the sound card, so the raw ALSA device cannot
+be opened. The app tries PulseAudio first and falls back to JACK then ALSA, each
+backend probed independently, because a backend whose *context* initialises can
+still fail to open a *device*.
+
 ## Tests
 
 ```bash

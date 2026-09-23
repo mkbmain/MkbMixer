@@ -16,6 +16,12 @@ public interface IAudioEngine : IDisposable
     /// <summary>Why the output device could not be opened, if it could not.</summary>
     string? OutputError { get; }
 
+    /// <summary>The backend and device actually in use, for the status bar.</summary>
+    string? OutputDescription { get; }
+
+    /// <summary>What was tried, in order, and what happened. For troubleshooting.</summary>
+    IReadOnlyList<string> Diagnostics { get; }
+
     /// <summary>Applies a crossfader position to both decks' gains.</summary>
     void ApplyCrossfader(float position);
 

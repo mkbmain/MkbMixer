@@ -70,13 +70,30 @@ public sealed partial class DeckViewModel : ViewModelBase
         catch (OperationCanceledException) { /* a newer track superseded this one */ }
     }
 
+    /// <summary>Raised when the user asks for playback that cannot happen, so the UI can say why.</summary>
+    public event EventHandler<string>? PlaybackRefused;
+
     [RelayCommand]
     private async Task PlayAsync()
     {
+        if (!_engine.IsOutputAvailable)
+        {
+            PlaybackRefused?.Invoke(this, $"{Label}: no audio output. "
+                + "Run with --audio-info to see which backends work.");
+            return;
+        }
+
         // Pressing play with nothing loaded pulls the top of the playlist, which is
         // what the original did implicitly via its selected-item lookup.
         if (_deck.Track is null && Playlist.Count > 0)
             await LoadAsync(Playlist[0]);
+
+        if (_deck.Track is null)
+        {
+            PlaybackRefused?.Invoke(this, $"{Label}: nothing loaded. "
+                + "Add a track to the playlist first.");
+            return;
+        }
 
         _deck.Play();
         Refresh();

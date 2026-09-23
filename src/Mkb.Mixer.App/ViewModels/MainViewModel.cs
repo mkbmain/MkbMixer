@@ -19,7 +19,7 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
     private readonly SettingsStore _settingsStore;
     private readonly AppSettings _settings;
     private readonly AutoCue _autoCue;
-    private readonly DispatcherTimer _timer;
+    private DispatcherTimer? _timer;
     private readonly Stopwatch _clock = Stopwatch.StartNew();
     private CancellationTokenSource? _scan;
     private bool _suppressFaderFeedback;
@@ -34,6 +34,8 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
 
         DeckA = new DeckViewModel(engine.DeckA, engine);
         DeckB = new DeckViewModel(engine.DeckB, engine);
+        DeckA.PlaybackRefused += (_, why) => StatusMessage = why;
+        DeckB.PlaybackRefused += (_, why) => StatusMessage = why;
 
         _autoCue = new AutoCue(engine.DeckA, engine.DeckB, DequeueFor)
         {
@@ -56,12 +58,45 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
         _currentFolder = _settings.LastFolder ?? DefaultFolder();
         engine.ApplyCrossfader(_crossfaderPosition);
 
-        if (!engine.IsOutputAvailable)
-            StatusMessage = $"No audio output: {engine.OutputError}";
+        // Silent playback is confusing unless the app says why, so the audio route
+        // is always visible rather than only on failure.
+        if (engine.IsOutputAvailable)
+        {
+            AudioStatus = $"♪ {engine.OutputDescription}";
+        }
+        else
+        {
+            AudioStatus = "♪ no audio output";
+            StatusMessage = $"No audio output ({engine.OutputError}). "
+                          + "Run with --audio-info to see which backends work.";
+        }
 
+        foreach (string line in engine.Diagnostics)
+            Console.WriteLine($"[audio] {line}");
+
+    }
+
+    /// <summary>
+    /// Starts the transport clock. Separate from the constructor because a
+    /// <see cref="DispatcherTimer"/> binds to the dispatcher of the thread that
+    /// creates it, which would make this view model unconstructible off the UI
+    /// thread. The window calls this once it is open.
+    /// </summary>
+    public void Start()
+    {
+        if (_timer is not null) return;
         _timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(100) };
         _timer.Tick += OnTick;
         _timer.Start();
+    }
+
+    /// <summary>Drives one transport update. Exposed so tests can step it directly.</summary>
+    public void Tick(TimeSpan now)
+    {
+        DeckA.Refresh();
+        DeckB.Refresh();
+        ClockText = DateTime.Now.ToLongTimeString();
+        _autoCue.Tick(now);
     }
 
     public DeckViewModel DeckA { get; }
@@ -78,6 +113,7 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
     [ObservableProperty] private string _searchText = string.Empty;
     [ObservableProperty] private string _currentFolder = string.Empty;
     [ObservableProperty] private string _statusMessage = "Ready";
+    [ObservableProperty] private string _audioStatus = string.Empty;
     [ObservableProperty] private bool _isScanning;
     [ObservableProperty] private string _clockText = string.Empty;
     [ObservableProperty] private float _crossfaderPosition;
@@ -109,13 +145,7 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
     private Track? DequeueFor(DeckId id) =>
         (id == DeckId.A ? DeckA : DeckB).DequeueNext();
 
-    private void OnTick(object? sender, EventArgs e)
-    {
-        DeckA.Refresh();
-        DeckB.Refresh();
-        ClockText = DateTime.Now.ToLongTimeString();
-        _autoCue.Tick(_clock.Elapsed);
-    }
+    private void OnTick(object? sender, EventArgs e) => Tick(_clock.Elapsed);
 
     private static string DefaultFolder() =>
         Environment.GetFolderPath(Environment.SpecialFolder.MyMusic) is { Length: > 0 } m && Directory.Exists(m)
@@ -313,7 +343,7 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
 
     public void Dispose()
     {
-        _timer.Stop();
+        _timer?.Stop();
         _scan?.Cancel();
         _engine.Dispose();
     }

@@ -10,8 +10,10 @@ public sealed class FakeAudioEngine : IAudioEngine
 
     public IDeck DeckA => A;
     public IDeck DeckB => B;
-    public bool IsOutputAvailable => true;
-    public string? OutputError => null;
+    public bool IsOutputAvailable { get; set; } = true;
+    public string? OutputError { get; set; }
+    public string? OutputDescription => "Fake — test device";
+    public IReadOnlyList<string> Diagnostics => ["Fake: OK"];
 
     public float LastCrossfader { get; private set; } = 0.5f;
 

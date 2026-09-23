@@ -107,10 +107,13 @@
     </Border>
 
     <!-- Status bar -->
-    <Grid Grid.Row="3" ColumnDefinitions="*,Auto" Margin="2,8,2,0">
+    <Grid Grid.Row="3" ColumnDefinitions="*,Auto,Auto" Margin="2,8,2,0">
       <TextBlock Classes="dim" Text="{Binding StatusMessage}" TextTrimming="CharacterEllipsis" />
       <ProgressBar Grid.Column="1" Width="120" IsIndeterminate="True" Height="3"
-                   IsVisible="{Binding IsScanning}" />
+                   IsVisible="{Binding IsScanning}" VerticalAlignment="Center" />
+      <TextBlock Grid.Column="2" Classes="dim" Margin="16,0,0,0"
+                 Text="{Binding AudioStatus}"
+                 ToolTip.Tip="The audio backend and device in use" />
     </Grid>
   </Grid>
 </Window>
