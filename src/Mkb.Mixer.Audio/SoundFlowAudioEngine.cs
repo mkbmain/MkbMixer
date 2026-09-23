@@ -1,3 +1,4 @@
+using System.Linq;
 using SoundFlow.Abstracts.Devices;
 using SoundFlow.Backends.MiniAudio;
 using SoundFlow.Backends.MiniAudio.Enums;
@@ -27,8 +28,26 @@ public sealed class SoundFlowAudioEngine : IAudioEngine
     {
         SampleRate = 44100,
         Channels = 2,
-        Format = SampleFormat.F32
+        Format = SampleFormat.F32,
+        // Layout must be set explicitly. It defaults to Unknown, which decoding
+        // tolerates but device initialisation rejects with FailedToOpenBackendDevice
+        // — a silent-playback bug that only shows up on a machine with a real
+        // sound card, since a machine without one fails for its own reasons.
+        Layout = AudioFormat.GetLayoutFromChannels(2)
     };
+
+    /// <summary>Formats to try, best first, if the preferred one is refused.</summary>
+    private static AudioFormat[] CandidateFormats() =>
+    [
+        Format,
+        AudioFormat.DvdHq,
+        AudioFormat.Cd,
+        new AudioFormat
+        {
+            SampleRate = 48000, Channels = 2, Format = SampleFormat.S16,
+            Layout = AudioFormat.GetLayoutFromChannels(2)
+        }
+    ];
 
     /// <summary>Backends to try, in order, for the host platform.</summary>
     private static MiniAudioBackend[] PreferredBackends()
@@ -71,24 +90,25 @@ public sealed class SoundFlowAudioEngine : IAudioEngine
             try
             {
                 engine = new MiniAudioEngine([backend]);
-                AudioPlaybackDevice device = engine.InitializePlaybackDevice(null, Format);
-                device.Start();
-
-                _engine = engine;
-                _device = device;
-                IsOutputAvailable = true;
-
-                string name = DefaultDeviceName(engine);
-                OutputDescription = $"{backend} — {name}";
-                _diagnostics.Add($"{backend}: OK ({name})");
-                break;
             }
             catch (Exception e)
             {
-                _diagnostics.Add($"{backend}: {e.Message}");
+                _diagnostics.Add($"{backend}: context failed — {e.Message}");
                 OutputError = e.Message;
-                try { engine?.Dispose(); } catch { /* nothing useful to do */ }
+                continue;
             }
+
+            if (TryOpenDevice(engine, backend, out AudioPlaybackDevice? device, out string route))
+            {
+                _engine = engine;
+                _device = device;
+                IsOutputAvailable = true;
+                OutputDescription = route;
+                _diagnostics.Add($"{backend}: OK ({route})");
+                break;
+            }
+
+            try { engine.Dispose(); } catch { /* nothing useful to do */ }
         }
 
         if (!IsOutputAvailable)
@@ -101,6 +121,61 @@ public sealed class SoundFlowAudioEngine : IAudioEngine
 
         _a = new SoundFlowDeck(DeckId.A, _engine, _device?.MasterMixer);
         _b = new SoundFlowDeck(DeckId.B, _engine, _device?.MasterMixer);
+    }
+
+    /// <summary>
+    /// Tries the default device, then each enumerated one, against each candidate
+    /// format. "Default Device" can fail to resolve even when a real device is
+    /// listed, so naming one explicitly is a necessary fallback.
+    /// </summary>
+    private bool TryOpenDevice(
+        MiniAudioEngine engine, MiniAudioBackend backend,
+        out AudioPlaybackDevice? opened, out string route)
+    {
+        opened = null;
+        route = string.Empty;
+
+        DeviceInfo[] devices;
+        try
+        {
+            engine.UpdateAudioDevicesInfo();
+            devices = engine.PlaybackDevices;
+        }
+        catch (Exception e)
+        {
+            _diagnostics.Add($"{backend}: could not list devices — {e.Message}");
+            devices = [];
+        }
+
+        // null means "the default device"; the named ones are the fallbacks.
+        var targets = new List<DeviceInfo?> { null };
+        targets.AddRange(devices.Where(d => d.IsDefault).Select(d => (DeviceInfo?)d));
+        targets.AddRange(devices.Where(d => !d.IsDefault).Select(d => (DeviceInfo?)d));
+
+        foreach (DeviceInfo? target in targets)
+        {
+            foreach (AudioFormat format in CandidateFormats())
+            {
+                try
+                {
+                    AudioPlaybackDevice device = engine.InitializePlaybackDevice(target, format);
+                    device.Start();
+                    opened = device;
+                    route = $"{backend} — {target?.Name ?? "default"} "
+                          + $"({format.SampleRate}Hz {format.Format})";
+                    return true;
+                }
+                catch (Exception e)
+                {
+                    _diagnostics.Add(
+                        $"{backend}/{target?.Name ?? "default"}/{format.SampleRate}Hz "
+                        + $"{format.Format}: {e.Message}");
+                    OutputError = e.Message;
+                }
+            }
+        }
+
+        return false;
     }
 
     /// <summary>A context with no device, so waveform analysis still works without output.</summary>
@@ -132,9 +207,9 @@ public sealed class SoundFlowAudioEngine : IAudioEngine
 
     public IDeck DeckA => _a;
     public IDeck DeckB => _b;
-    public bool IsOutputAvailable { get; }
-    public string? OutputError { get; }
-    public string? OutputDescription { get; }
+    public bool IsOutputAvailable { get; private set; }
+    public string? OutputError { get; private set; }
+    public string? OutputDescription { get; private set; }
     public IReadOnlyList<string> Diagnostics => _diagnostics;
 
     public void ApplyCrossfader(float position)

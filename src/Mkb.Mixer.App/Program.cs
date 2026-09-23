@@ -2,7 +2,9 @@ using Avalonia;
 using System;
 using System.Linq;
 using Mkb.Mixer.Audio;
+using System.Collections.Generic;
 using SoundFlow.Backends.MiniAudio;
+using SoundFlow.Structs;
 using SoundFlow.Backends.MiniAudio.Enums;
 
 namespace Mkb.Mixer.App;
@@ -48,12 +50,33 @@ sealed class Program
                 var devices = engine.PlaybackDevices;
                 Console.Write($"{devices.Length} playback device(s); ");
 
-                using var device = engine.InitializePlaybackDevice(null, SoundFlowAudioEngine.OutputFormat);
-                device.Start();
-                device.Stop();
-                Console.WriteLine("DEVICE OPENS ✓");
+                Console.WriteLine();
                 foreach (var d in devices)
-                    Console.WriteLine($"                 {(d.IsDefault ? "*" : " ")} {d.Name}");
+                    Console.WriteLine($"               {(d.IsDefault ? "*" : " ")} {d.Name}");
+
+                // Probe the default device and each named one, against each format,
+                // because "Default Device" can fail to resolve even when real
+                // devices are listed.
+                var targets = new List<DeviceInfo?> { null };
+                targets.AddRange(devices.Select(d => (DeviceInfo?)d));
+
+                foreach (var target in targets)
+                foreach (var fmt in Formats())
+                {
+                    string label = $"               {target?.Name ?? "<default>"} "
+                                 + $"@ {fmt.SampleRate}Hz {fmt.Format} {fmt.Layout}";
+                    try
+                    {
+                        using var device = engine.InitializePlaybackDevice(target, fmt);
+                        device.Start();
+                        device.Stop();
+                        Console.WriteLine($"{label}  OPENS ✓");
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"{label}  failed: {ex.Message}");
+                    }
+                }
             }
             catch (Exception e)
             {
@@ -66,10 +89,17 @@ sealed class Program
         }
 
         Console.WriteLine();
-        Console.WriteLine("The app picks the first backend whose device opens.");
+        Console.WriteLine("The app picks the first backend/device/format combination that opens.");
         Console.WriteLine("Force one with:  dotnet run --project src/Mkb.Mixer.App -- --backend=PulseAudio");
         return 0;
     }
+
+    private static AudioFormat[] Formats() =>
+    [
+        SoundFlowAudioEngine.OutputFormat,
+        AudioFormat.DvdHq,
+        AudioFormat.Cd
+    ];
 
     public static AppBuilder BuildAvaloniaApp()
         => AppBuilder.Configure<App>()

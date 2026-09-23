@@ -42,6 +42,11 @@ dotnet run --project src/Mkb.Mixer.App -- --backend=PulseAudio
 
 Valid values on Linux are `PulseAudio`, `Jack`, `Alsa` and `Oss`.
 
+The app probes each backend, then the default device followed by each named
+device, against several formats, and uses the first combination that opens.
+`Default Device` failing while a named device works is common and handled
+automatically.
+
 ALSA errors such as `unable to open slave` or `Unknown PCM dmix` usually mean
 PulseAudio or PipeWire already holds the sound card, so the raw ALSA device cannot
 be opened. The app tries PulseAudio first and falls back to JACK then ALSA, each
