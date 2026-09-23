@@ -1,0 +1,77 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Mkb.Mixer.App.ViewModels"
+             xmlns:ctrl="using:Mkb.Mixer.App.Controls"
+             x:Class="Mkb.Mixer.App.Views.DeckView"
+             x:DataType="vm:DeckViewModel">
+  <Border Classes="panel">
+    <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,*">
+
+      <!-- Deck name and live/mute indicator -->
+      <Grid Grid.Row="0" ColumnDefinitions="*,Auto">
+        <TextBlock Classes="heading" Text="{Binding Label}" VerticalAlignment="Center" />
+        <Button Grid.Column="1" Command="{Binding ToggleMuteCommand}"
+                Background="Transparent" BorderThickness="0" Padding="6,2"
+                ToolTip.Tip="Toggle mute for this deck">
+          <TextBlock Text="{Binding MuteLabel}" FontSize="12" FontWeight="Bold"
+                     Foreground="{Binding IsMuted, Converter={StaticResource MuteColour}}" />
+        </Button>
+      </Grid>
+
+      <TextBlock Grid.Row="1" Classes="nowplaying" Margin="0,8,0,6"
+                 Text="{Binding NowPlaying}" ToolTip.Tip="{Binding NowPlaying}" />
+
+      <!-- Waveform: click or drag anywhere to seek -->
+      <ctrl:WaveformView Grid.Row="2" Name="Wave" Height="72"
+                         Waveform="{Binding Waveform}"
+                         Progress="{Binding Progress}" />
+
+      <Grid Grid.Row="3" ColumnDefinitions="Auto,*,Auto" Margin="0,4,0,10">
+        <TextBlock Classes="time" Text="{Binding Elapsed}" />
+        <TextBlock Grid.Column="2" Classes="time" Text="{Binding Remaining}" />
+      </Grid>
+
+      <!-- Transport plus the tempo slider -->
+      <Grid Grid.Row="4" ColumnDefinitions="Auto,Auto,Auto,*,Auto,Auto">
+        <Button Classes="transport" Content="▶" Command="{Binding PlayCommand}"
+                ToolTip.Tip="Play" />
+        <Button Grid.Column="1" Classes="transport" Content="❚❚" Margin="6,0,0,0"
+                Command="{Binding PauseCommand}" ToolTip.Tip="Pause" />
+        <Button Grid.Column="2" Classes="transport" Content="■" Margin="6,0,0,0"
+                Command="{Binding StopCommand}" ToolTip.Tip="Stop" />
+
+        <TextBlock Grid.Column="4" Classes="dim" Text="tempo" VerticalAlignment="Center"
+                   Margin="0,0,8,0" />
+        <Slider Grid.Column="5" Width="130" Minimum="0.5" Maximum="1.5"
+                TickFrequency="0.25" Value="{Binding Tempo}"
+                ToolTip.Tip="Playback speed. Pitch is preserved." />
+      </Grid>
+
+      <!-- Playlist for this deck -->
+      <Grid Grid.Row="5" RowDefinitions="Auto,*" Margin="0,12,0,0">
+        <Grid ColumnDefinitions="*,Auto,Auto,Auto,Auto">
+          <TextBlock Classes="dim" Text="PLAYLIST" VerticalAlignment="Center" />
+          <Button Grid.Column="1" Classes="tiny" Content="▲" Command="{Binding MoveUpCommand}"
+                  ToolTip.Tip="Move selected track up" />
+          <Button Grid.Column="2" Classes="tiny" Content="▼" Margin="4,0,0,0"
+                  Command="{Binding MoveDownCommand}" ToolTip.Tip="Move selected track down" />
+          <Button Grid.Column="3" Classes="tiny" Content="Load" Margin="4,0,0,0"
+                  Command="{Binding LoadSelectedCommand}" ToolTip.Tip="Load selected track onto this deck" />
+          <Button Grid.Column="4" Classes="tiny" Content="✕" Margin="4,0,0,0"
+                  Command="{Binding RemoveSelectedCommand}" ToolTip.Tip="Remove selected track" />
+        </Grid>
+
+        <ListBox Grid.Row="1" Margin="0,6,0,0" MinHeight="120"
+                 ItemsSource="{Binding Playlist}"
+                 SelectedItem="{Binding SelectedPlaylistItem}">
+          <ListBox.ItemTemplate>
+            <DataTemplate>
+              <TextBlock Text="{Binding Display}" FontSize="12"
+                         TextTrimming="CharacterEllipsis" />
+            </DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+      </Grid>
+    </Grid>
+  </Border>
+</UserControl>

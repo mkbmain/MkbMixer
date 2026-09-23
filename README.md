@@ -1,0 +1,78 @@
+# MKB Music Mixer
+
+A cross-platform dual-deck DJ mixer for Linux, macOS and Windows.
+
+This is a rewrite of a .NET 2.0 WinForms application from roughly 2005. The original
+was Windows-only by construction: it drove two `WMPLib.WindowsMediaPlayer` COM
+objects, enumerated drive letters, and assumed `\` path separators throughout.
+The core idea — two decks, a crossfader between them, and an auto-cue that mixes
+the next track in as the current one runs out — is unchanged.
+
+## Requirements
+
+- .NET 10 SDK
+- A working audio output device (PulseAudio, PipeWire, ALSA or JACK on Linux;
+  CoreAudio on macOS; WASAPI on Windows)
+
+## Running
+
+```bash
+dotnet run --project src/Mkb.Mixer.App
+```
+
+## Tests
+
+```bash
+dotnet test
+```
+
+The suite covers the crossfade curve, the auto-cue state machine, playlist and
+settings persistence, waveform reduction, and a headless render of the real window.
+None of it needs a sound card.
+
+## Layout
+
+| Project | Contains |
+|---|---|
+| `src/Mkb.Mixer.Audio` | `IDeck`/`IAudioEngine`, the crossfade curve, the auto-cue state machine, waveform reduction, and the SoundFlow implementation |
+| `src/Mkb.Mixer.Library` | Folder scanning, ID3 tag reading, M3U playlists, settings |
+| `src/Mkb.Mixer.App` | Avalonia UI (MVVM) |
+| `tests/Mkb.Mixer.Tests` | xUnit |
+
+Everything above `Mkb.Mixer.Audio` talks to `IDeck` and `IAudioEngine`, so the
+audio library is swappable and the logic is testable without an audio device.
+
+## What changed from the original
+
+**Fixed bugs**
+
+- *The crossfader was discontinuous.* Deck A sat at full gain across the whole
+  left half of the fader, then jumped from 1.0 to 0.49 at the midpoint. The
+  `(100 - v) * 2` term also overflowed to 200 and was silently clamped. It is now
+  a constant-power curve, continuous and symmetric, verified by tests.
+- *The auto-cue often never fired.* The trigger was `if (timeleft == 20)` — exact
+  integer equality against a value sampled by a 1050 ms timer. A tick landing on
+  21 then 19 skipped the window entirely. It is now a `>=` threshold guarded by an
+  explicit state machine, with the fade interpolated on elapsed wall-clock time.
+- *Scanning froze the UI.* The original recursed on the UI thread calling
+  `Application.DoEvents()`. Scanning is now async and cancellable.
+- *Closing the app called `Process.GetCurrentProcess().Kill()`.* The engine is
+  disposed properly instead.
+- Roughly thirty empty `catch {}` blocks are gone; failures that matter surface in
+  the status bar.
+
+**Added**
+
+- Waveform display with click-and-drag seeking. The original had no seek at all.
+- ID3/Vorbis/MP4 tags, so lists show `Artist — Title` rather than `C:\Music\x.mp3`.
+- Playlists saved as M3U, and settings persisted between runs.
+- Tempo control that preserves pitch (WSOLA) rather than resampling.
+- FLAC, OGG, M4A, AAC and Opus support.
+
+## Known limitations
+
+- **WMA only decodes on Windows.** It is a Microsoft codec with no cross-platform
+  decoder in this stack. The original supported `.mp3`, `.wma` and `.wav`.
+- **Tempo always preserves pitch.** SoundFlow routes `PlaybackSpeed` through WSOLA
+  unconditionally, so the original's pitch-shifting speed control cannot be
+  reproduced without adding a resampling path.

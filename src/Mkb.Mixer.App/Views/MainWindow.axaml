@@ -1,0 +1,109 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:Mkb.Mixer.App.ViewModels"
+        xmlns:views="using:Mkb.Mixer.App.Views"
+        x:Class="Mkb.Mixer.App.Views.MainWindow"
+        x:DataType="vm:MainViewModel"
+        Title="MKB Music Mixer"
+        Width="1280" Height="840" MinWidth="900" MinHeight="680"
+        Background="{StaticResource WindowBg}">
+
+  <Grid Margin="10" RowDefinitions="Auto,Auto,*,Auto">
+
+    <!-- Decks -->
+    <Grid Grid.Row="0" ColumnDefinitions="*,10,*">
+      <views:DeckView DataContext="{Binding DeckA}" />
+      <views:DeckView Grid.Column="2" DataContext="{Binding DeckB}" />
+    </Grid>
+
+    <!-- Mixer: crossfader plus auto-cue -->
+    <Border Grid.Row="1" Classes="panel" Margin="0,10,0,0">
+      <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto,Auto">
+        <TextBlock Classes="heading" Text="A" VerticalAlignment="Center" />
+        <Slider Grid.Column="1" Minimum="0" Maximum="1" Margin="12,0"
+                Value="{Binding CrossfaderPosition}"
+                ToolTip.Tip="Crossfader. Constant-power curve, so loudness stays steady across the fade." />
+        <TextBlock Grid.Column="2" Classes="heading" Text="B" VerticalAlignment="Center" />
+
+        <CheckBox Grid.Column="3" Margin="24,0,0,0" Content="auto-cue"
+                  IsChecked="{Binding AutoCueEnabled}"
+                  ToolTip.Tip="Automatically fade to the other deck as a track runs out." />
+
+        <TextBlock Grid.Column="4" Classes="dim" Text="fade (s)" VerticalAlignment="Center"
+                   Margin="16,0,6,0" />
+        <NumericUpDown Grid.Column="5" Width="120" Minimum="1" Maximum="120" Increment="1"
+                       FormatString="0" ParsingNumberStyle="Integer"
+                       Value="{Binding CrossfadeSeconds}"
+                       ToolTip.Tip="How long before the end the fade starts, and how long it lasts." />
+
+        <TextBlock Grid.Column="6" Classes="time" Margin="20,0,0,0"
+                   Text="{Binding ClockText}" VerticalAlignment="Center" />
+      </Grid>
+    </Border>
+
+    <!-- Library browser -->
+    <Border Grid.Row="2" Classes="panel" Margin="0,10,0,0">
+      <Grid RowDefinitions="Auto,*">
+        <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto">
+          <TextBlock Classes="heading" Text="LIBRARY" VerticalAlignment="Center" />
+          <TextBox Grid.Column="1" Margin="16,0" Watermark="Search this folder and below…"
+                   Text="{Binding SearchText}" />
+          <Button Grid.Column="2" Content="Search" Command="{Binding SearchCommand}" />
+          <Button Grid.Column="3" Content="Stop" Margin="6,0,0,0"
+                  Command="{Binding CancelScanCommand}"
+                  IsEnabled="{Binding IsScanning}" />
+          <Button Grid.Column="4" Content="Save playlists" Margin="16,0,0,0"
+                  Command="{Binding SavePlaylistsCommand}" />
+          <Button Grid.Column="5" Content="Load playlists" Margin="6,0,0,0"
+                  Command="{Binding LoadPlaylistsCommand}" />
+        </Grid>
+
+        <Grid Grid.Row="1" ColumnDefinitions="260,10,*" Margin="0,10,0,0">
+          <!-- Folder tree, expanded lazily -->
+          <TreeView ItemsSource="{Binding Roots}"
+                    SelectedItem="{Binding SelectedFolder}">
+            <TreeView.ItemTemplate>
+              <TreeDataTemplate ItemsSource="{Binding Children}">
+                <TextBlock Text="{Binding Name}" FontSize="12" />
+              </TreeDataTemplate>
+            </TreeView.ItemTemplate>
+          </TreeView>
+
+          <!-- Tracks in the selected folder -->
+          <Grid Grid.Column="2" RowDefinitions="*,Auto">
+            <DataGrid ItemsSource="{Binding BrowserTracks}"
+                      SelectedItem="{Binding SelectedBrowserTrack}"
+                      IsReadOnly="True" GridLinesVisibility="Horizontal"
+                      HeadersVisibility="Column">
+              <DataGrid.Columns>
+                <DataGridTextColumn Header="Title" Binding="{Binding Title}" Width="*" />
+                <DataGridTextColumn Header="Artist" Binding="{Binding Artist}" Width="200" />
+                <DataGridTextColumn Header="Album" Binding="{Binding Album}" Width="180" />
+                <DataGridTextColumn Header="Time" Binding="{Binding DurationText}" Width="80" />
+              </DataGrid.Columns>
+            </DataGrid>
+
+            <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,8,0,0" Spacing="8">
+              <Button Content="→ Deck A" Command="{Binding AddToDeckACommand}"
+                      ToolTip.Tip="Add the selected track to deck A's playlist" />
+              <Button Content="→ Deck B" Command="{Binding AddToDeckBCommand}"
+                      ToolTip.Tip="Add the selected track to deck B's playlist" />
+              <Rectangle Width="1" Fill="{StaticResource PanelBorder}" Margin="8,0" />
+              <Button Content="A ⇢ B" Command="{Binding SendAToBCommand}"
+                      ToolTip.Tip="Move deck A's selected track to deck B" />
+              <Button Content="B ⇢ A" Command="{Binding SendBToACommand}"
+                      ToolTip.Tip="Move deck B's selected track to deck A" />
+            </StackPanel>
+          </Grid>
+        </Grid>
+      </Grid>
+    </Border>
+
+    <!-- Status bar -->
+    <Grid Grid.Row="3" ColumnDefinitions="*,Auto" Margin="2,8,2,0">
+      <TextBlock Classes="dim" Text="{Binding StatusMessage}" TextTrimming="CharacterEllipsis" />
+      <ProgressBar Grid.Column="1" Width="120" IsIndeterminate="True" Height="3"
+                   IsVisible="{Binding IsScanning}" />
+    </Grid>
+  </Grid>
+</Window>

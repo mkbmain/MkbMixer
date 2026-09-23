@@ -1,0 +1,61 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <Styles.Resources>
+    <!-- Gold is the one deliberate carry-over from the original's black-and-gold chrome. -->
+    <Color x:Key="AccentColor">#FFC83C</Color>
+    <SolidColorBrush x:Key="Accent" Color="#FFC83C" />
+    <SolidColorBrush x:Key="Live" Color="#3CD070" />
+    <SolidColorBrush x:Key="Muted" Color="#E05050" />
+    <SolidColorBrush x:Key="PanelBg" Color="#16181C" />
+    <SolidColorBrush x:Key="PanelBorder" Color="#2A2E36" />
+    <SolidColorBrush x:Key="WindowBg" Color="#0E1013" />
+    <SolidColorBrush x:Key="Dim" Color="#8A90A0" />
+  </Styles.Resources>
+
+  <Style Selector="Border.panel">
+    <Setter Property="Background" Value="{StaticResource PanelBg}" />
+    <Setter Property="BorderBrush" Value="{StaticResource PanelBorder}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="6" />
+    <Setter Property="Padding" Value="12" />
+  </Style>
+
+  <Style Selector="TextBlock.heading">
+    <Setter Property="Foreground" Value="{StaticResource Accent}" />
+    <Setter Property="FontWeight" Value="Bold" />
+    <Setter Property="FontSize" Value="13" />
+    <Setter Property="LetterSpacing" Value="2" />
+  </Style>
+
+  <Style Selector="TextBlock.dim">
+    <Setter Property="Foreground" Value="{StaticResource Dim}" />
+    <Setter Property="FontSize" Value="12" />
+  </Style>
+
+  <Style Selector="TextBlock.time">
+    <Setter Property="FontFamily" Value="monospace" />
+    <Setter Property="FontSize" Value="13" />
+    <Setter Property="Foreground" Value="#D8DCE4" />
+  </Style>
+
+  <Style Selector="TextBlock.nowplaying">
+    <Setter Property="FontSize" Value="15" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="Foreground" Value="#F0F2F6" />
+    <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+  </Style>
+
+  <Style Selector="Button.transport">
+    <Setter Property="Width" Value="42" />
+    <Setter Property="Height" Value="32" />
+    <Setter Property="FontSize" Value="14" />
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="HorizontalContentAlignment" Value="Center" />
+  </Style>
+
+  <Style Selector="Button.tiny">
+    <Setter Property="Padding" Value="6,2" />
+    <Setter Property="FontSize" Value="11" />
+    <Setter Property="MinWidth" Value="0" />
+  </Style>
+</Styles>

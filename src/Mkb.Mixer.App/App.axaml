@@ -1,0 +1,28 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="Mkb.Mixer.App.App"
+             xmlns:local="using:Mkb.Mixer.App"
+             xmlns:conv="using:Mkb.Mixer.App.Converters"
+             RequestedThemeVariant="Dark">
+  <Application.Resources>
+    <!-- Green when live, red when muted, mirroring the original's ■ LIVE / ■ MUTE label. -->
+    <conv:BoolToBrushConverter x:Key="MuteColour">
+      <conv:BoolToBrushConverter.TrueBrush>
+        <SolidColorBrush Color="#E05050" />
+      </conv:BoolToBrushConverter.TrueBrush>
+      <conv:BoolToBrushConverter.FalseBrush>
+        <SolidColorBrush Color="#3CD070" />
+      </conv:BoolToBrushConverter.FalseBrush>
+    </conv:BoolToBrushConverter>
+  </Application.Resources>
+
+  <Application.DataTemplates>
+    <local:ViewLocator />
+  </Application.DataTemplates>
+
+  <Application.Styles>
+    <FluentTheme />
+    <StyleInclude Source="avares://Avalonia.Controls.DataGrid/Themes/Fluent.xaml" />
+    <StyleInclude Source="avares://Mkb.Mixer.App/Styles.axaml" />
+  </Application.Styles>
+</Application>

@@ -1,0 +1,159 @@
+using System;
+using System.Collections.ObjectModel;
+using System.Threading;
+using System.Threading.Tasks;
+using Avalonia.Threading;
+using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
+using Mkb.Mixer.Audio;
+
+namespace Mkb.Mixer.App.ViewModels;
+
+/// <summary>One deck: its transport, its playlist and its waveform.</summary>
+public sealed partial class DeckViewModel : ViewModelBase
+{
+    private readonly IDeck _deck;
+    private readonly IAudioEngine _engine;
+    private CancellationTokenSource? _analysis;
+
+    public DeckViewModel(IDeck deck, IAudioEngine engine)
+    {
+        _deck = deck;
+        _engine = engine;
+        // SoundFlow raises this from its audio callback thread, so it has to be
+        // marshalled before it touches anything bound to the UI.
+        _deck.TrackEnded += (_, _) => Dispatcher.UIThread.Post(PlayNextFromPlaylist);
+    }
+
+    public DeckId Id => _deck.Id;
+    public string Label => _deck.Id == DeckId.A ? "DECK A" : "DECK B";
+
+    /// <summary>The queue this deck plays through, and that the auto-cue pulls from.</summary>
+    public ObservableCollection<Track> Playlist { get; } = [];
+
+    [ObservableProperty] private Track? _selectedPlaylistItem;
+    [ObservableProperty] private string _nowPlaying = "No track loaded";
+    [ObservableProperty] private string _elapsed = "0:00";
+    [ObservableProperty] private string _remaining = "-0:00";
+    [ObservableProperty] private double _progress;
+    [ObservableProperty] private bool _isPlaying;
+    [ObservableProperty] private bool _isMuted;
+    [ObservableProperty] private Waveform _waveform = Waveform.Empty;
+    [ObservableProperty] private double _tempo = 1.0;
+
+    public string MuteLabel => IsMuted ? "■ MUTE" : "■ LIVE";
+
+    partial void OnIsMutedChanged(bool value)
+    {
+        _deck.IsMuted = value;
+        OnPropertyChanged(nameof(MuteLabel));
+    }
+
+    partial void OnTempoChanged(double value) => _deck.Tempo = (float)value;
+
+    /// <summary>Loads a track and kicks off waveform analysis in the background.</summary>
+    public async Task LoadAsync(Track track)
+    {
+        _deck.Load(track);
+        NowPlaying = track.Display;
+        Waveform = Waveform.Empty;
+        Refresh();
+
+        _analysis?.Cancel();
+        _analysis = new CancellationTokenSource();
+        CancellationToken ct = _analysis.Token;
+        try
+        {
+            Waveform wave = await _engine.AnalyseAsync(track.Path, ct);
+            if (!ct.IsCancellationRequested) Waveform = wave;
+        }
+        catch (OperationCanceledException) { /* a newer track superseded this one */ }
+    }
+
+    [RelayCommand]
+    private async Task PlayAsync()
+    {
+        // Pressing play with nothing loaded pulls the top of the playlist, which is
+        // what the original did implicitly via its selected-item lookup.
+        if (_deck.Track is null && Playlist.Count > 0)
+            await LoadAsync(Playlist[0]);
+
+        _deck.Play();
+        Refresh();
+    }
+
+    [RelayCommand]
+    private void Pause() { _deck.Pause(); Refresh(); }
+
+    [RelayCommand]
+    private void Stop() { _deck.Stop(); Refresh(); }
+
+    [RelayCommand]
+    private void ToggleMute() => IsMuted = !IsMuted;
+
+    [RelayCommand]
+    private async Task LoadSelectedAsync()
+    {
+        if (SelectedPlaylistItem is { } t) await LoadAsync(t);
+    }
+
+    [RelayCommand]
+    private void RemoveSelected()
+    {
+        if (SelectedPlaylistItem is { } t) Playlist.Remove(t);
+    }
+
+    [RelayCommand]
+    private void MoveUp() => Move(-1);
+
+    [RelayCommand]
+    private void MoveDown() => Move(+1);
+
+    private void Move(int delta)
+    {
+        if (SelectedPlaylistItem is not { } t) return;
+        int i = Playlist.IndexOf(t);
+        int j = i + delta;
+        if (i < 0 || j < 0 || j >= Playlist.Count) return;
+        Playlist.Move(i, j);
+        SelectedPlaylistItem = t;
+    }
+
+    /// <summary>Pops the next queued track. The auto-cue uses this too.</summary>
+    public Track? DequeueNext()
+    {
+        if (Playlist.Count == 0) return null;
+        Track next = Playlist[0];
+        Playlist.RemoveAt(0);
+        return next;
+    }
+
+    private async void PlayNextFromPlaylist()
+    {
+        if (DequeueNext() is not { } next) return;
+        await LoadAsync(next);
+        _deck.Play();
+    }
+
+    /// <summary>Seeks to a fraction of the track, used by clicking the waveform.</summary>
+    public void SeekToFraction(double fraction)
+    {
+        if (_deck.Duration <= TimeSpan.Zero) return;
+        _deck.Seek(_deck.Duration * Math.Clamp(fraction, 0, 1));
+        Refresh();
+    }
+
+    /// <summary>Pulls the current transport state out of the deck for the UI.</summary>
+    public void Refresh()
+    {
+        IsPlaying = _deck.State == PlaybackState.Playing;
+        TimeSpan pos = _deck.Position, dur = _deck.Duration;
+        Elapsed = Format(pos);
+        Remaining = "-" + Format(dur - pos);
+        Progress = dur > TimeSpan.Zero ? pos.TotalSeconds / dur.TotalSeconds : 0;
+        if (_deck.Track is { } t && NowPlaying != t.Display) NowPlaying = t.Display;
+    }
+
+    private static string Format(TimeSpan t) =>
+        t < TimeSpan.Zero ? "0:00" : $"{(int)t.TotalMinutes}:{t.Seconds:00}";
+}
