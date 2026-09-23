@@ -23,6 +23,12 @@ sealed class Program
             Environment.SetEnvironmentVariable("MKB_BACKEND", forced["--backend=".Length..]);
         }
 
+        if (args.FirstOrDefault(a => a.StartsWith("--device=", StringComparison.Ordinal))
+            is { } device)
+        {
+            Environment.SetEnvironmentVariable("MKB_DEVICE", device["--device=".Length..]);
+        }
+
         BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
         return 0;
     }
@@ -90,7 +96,8 @@ sealed class Program
 
         Console.WriteLine();
         Console.WriteLine("The app picks the first backend/device/format combination that opens.");
-        Console.WriteLine("Force one with:  dotnet run --project src/Mkb.Mixer.App -- --backend=PulseAudio");
+        Console.WriteLine("Force a backend:  --backend=PulseAudio");
+        Console.WriteLine("Force a device :  --device=\"Built-in Audio\"   (matches on a substring)");
         return 0;
     }
 

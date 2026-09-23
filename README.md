@@ -40,7 +40,26 @@ opens. To force one:
 dotnet run --project src/Mkb.Mixer.App -- --backend=PulseAudio
 ```
 
-Valid values on Linux are `PulseAudio`, `Jack`, `Alsa` and `Oss`.
+Valid values on Linux are `PulseAudio`, `Jack`, `Alsa` and `Oss`. A specific sink
+can be forced by name substring:
+
+```bash
+dotnet run --project src/Mkb.Mixer.App -- --device="Built-in Audio"
+```
+
+### "only a dummy/null sink is available"
+
+The backend connected but offered nothing except a null device, which discards
+everything. The app refuses to use one, because playing into a null sink is silent
+and races the playhead to the end of the track. Check that a sound server is
+actually running and exposing a sink:
+
+```bash
+pactl info                 # PulseAudio / pipewire-pulse server
+pactl list short sinks     # should list at least one real sink
+wpctl status               # if you are on PipeWire
+aplay -l                   # ALSA hardware the kernel can see
+```
 
 The app probes each backend, then the default device followed by each named
 device, against several formats, and uses the first combination that opens.

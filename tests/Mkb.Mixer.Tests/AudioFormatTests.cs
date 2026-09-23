@@ -42,3 +42,31 @@ public class AudioFormatTests
         Assert.Equal(ChannelLayout.Unknown, careless.Layout);
     }
 }
+
+/// <summary>
+/// A null sink opens successfully and then discards everything, which presents as
+/// silent playback with the playhead racing to the end of the track. It must never
+/// be chosen as an output device.
+/// </summary>
+public class DummyDeviceTests
+{
+    [Theory]
+    [InlineData("Discard all samples (playback) or generate zero samples (capture)")]
+    [InlineData("Null Output")]
+    [InlineData("Dummy Output")]
+    [InlineData("auto_null")]
+    [InlineData("null")]
+    public void DummySinksAreRejected(string name)
+        => Assert.True(SoundFlowAudioEngine.IsDummyDevice(name));
+
+    [Theory]
+    [InlineData("Built-in Audio Analog Stereo")]
+    [InlineData("HDA Intel PCH")]
+    [InlineData("Family 17h HD Audio Controller")]
+    [InlineData("Default Audio Device")]
+    public void RealDevicesAreAccepted(string name)
+        => Assert.False(SoundFlowAudioEngine.IsDummyDevice(name));
+
+    [Fact]
+    public void ANullNameIsNotADummy() => Assert.False(SoundFlowAudioEngine.IsDummyDevice(null));
+}

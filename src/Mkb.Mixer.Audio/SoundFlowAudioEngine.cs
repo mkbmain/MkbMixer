@@ -94,7 +94,7 @@ public sealed class SoundFlowAudioEngine : IAudioEngine
             catch (Exception e)
             {
                 _diagnostics.Add($"{backend}: context failed — {e.Message}");
-                OutputError = e.Message;
+                if (!OnlyDummyDevices) OutputError = e.Message;
                 continue;
             }
 
@@ -124,9 +124,27 @@ public sealed class SoundFlowAudioEngine : IAudioEngine
     }
 
     /// <summary>
+    /// Devices that exist only to swallow audio. Opening one "succeeds" and then
+    /// plays nothing, racing the playhead to the end of the track, so they are
+    /// never an acceptable output.
+    /// </summary>
+    private static readonly string[] DummyDeviceMarkers =
+    [
+        "discard all samples",   // the ALSA/Pulse null device's own description
+        "null",
+        "dummy",
+        "auto_null"
+    ];
+
+    public static bool IsDummyDevice(string? name) =>
+        name is not null &&
+        DummyDeviceMarkers.Any(m => name.Contains(m, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
     /// Tries the default device, then each enumerated one, against each candidate
     /// format. "Default Device" can fail to resolve even when a real device is
-    /// listed, so naming one explicitly is a necessary fallback.
+    /// listed, so naming one explicitly is a necessary fallback. Dummy sinks are
+    /// excluded entirely: they open happily and discard everything.
     /// </summary>
     private bool TryOpenDevice(
         MiniAudioEngine engine, MiniAudioBackend backend,
@@ -147,10 +165,54 @@ public sealed class SoundFlowAudioEngine : IAudioEngine
             devices = [];
         }
 
+        foreach (DeviceInfo d in devices)
+            _diagnostics.Add($"{backend}: sees device \"{d.Name}\"" +
+                             (d.IsDefault ? " (default)" : "") +
+                             (IsDummyDevice(d.Name) ? " [dummy — will not be used]" : ""));
+
+        // MKB_DEVICE (set by --device=) forces a specific sink by name substring,
+        // for when enumeration is unhelpful but a working device is known to exist.
+        string? forcedName = Environment.GetEnvironmentVariable("MKB_DEVICE");
+        if (!string.IsNullOrWhiteSpace(forcedName))
+        {
+            DeviceInfo[] matched = devices
+                .Where(d => d.Name?.Contains(forcedName, StringComparison.OrdinalIgnoreCase) == true)
+                .ToArray();
+            if (matched.Length > 0)
+            {
+                _diagnostics.Add($"{backend}: forcing device matching \"{forcedName}\"");
+                return TryTargets(engine, backend, matched.Select(d => (DeviceInfo?)d), out opened, out route);
+            }
+            _diagnostics.Add($"{backend}: no device matches \"{forcedName}\"");
+        }
+
+        DeviceInfo[] real = devices.Where(d => !IsDummyDevice(d.Name)).ToArray();
+        if (real.Length == 0 && devices.Length > 0)
+        {
+            const string why = "only a dummy/null sink is available, so there is no real "
+                             + "audio output. Check that PulseAudio or PipeWire is running "
+                             + "and exposes a sink.";
+            _diagnostics.Add($"{backend}: {why}");
+            OutputError = why;
+            OnlyDummyDevices = true;
+            return false;
+        }
+
         // null means "the default device"; the named ones are the fallbacks.
         var targets = new List<DeviceInfo?> { null };
-        targets.AddRange(devices.Where(d => d.IsDefault).Select(d => (DeviceInfo?)d));
-        targets.AddRange(devices.Where(d => !d.IsDefault).Select(d => (DeviceInfo?)d));
+        targets.AddRange(real.Where(d => d.IsDefault).Select(d => (DeviceInfo?)d));
+        targets.AddRange(real.Where(d => !d.IsDefault).Select(d => (DeviceInfo?)d));
+
+        return TryTargets(engine, backend, targets, out opened, out route);
+    }
+
+    /// <summary>Tries each candidate device against each candidate format.</summary>
+    private bool TryTargets(
+        MiniAudioEngine engine, MiniAudioBackend backend, IEnumerable<DeviceInfo?> targets,
+        out AudioPlaybackDevice? opened, out string route)
+    {
+        opened = null;
+        route = string.Empty;
 
         foreach (DeviceInfo? target in targets)
         {
@@ -170,7 +232,7 @@ public sealed class SoundFlowAudioEngine : IAudioEngine
                     _diagnostics.Add(
                         $"{backend}/{target?.Name ?? "default"}/{format.SampleRate}Hz "
                         + $"{format.Format}: {e.Message}");
-                    OutputError = e.Message;
+                    if (!OnlyDummyDevices) OutputError = e.Message;
                 }
             }
         }
@@ -211,6 +273,9 @@ public sealed class SoundFlowAudioEngine : IAudioEngine
     public string? OutputError { get; private set; }
     public string? OutputDescription { get; private set; }
     public IReadOnlyList<string> Diagnostics => _diagnostics;
+
+    /// <summary>True when a backend worked but offered nothing except a null sink.</summary>
+    public bool OnlyDummyDevices { get; private set; }
 
     public void ApplyCrossfader(float position)
     {
