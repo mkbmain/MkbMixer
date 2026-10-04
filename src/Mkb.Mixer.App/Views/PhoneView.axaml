@@ -1,0 +1,147 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Mkb.Mixer.App.ViewModels"
+             xmlns:audio="using:Mkb.Mixer.Audio"
+             xmlns:views="using:Mkb.Mixer.App.Views"
+             x:Class="Mkb.Mixer.App.Views.PhoneView"
+             x:DataType="vm:MainViewModel"
+             Classes="touch phone"
+             Background="{StaticResource WindowBg}">
+
+  <!-- A phone held upright has room for one thing at a time, so the tablet layout
+       splits into tabs: the decks and crossfader, both playlists, and the library. -->
+  <Grid RowDefinitions="Auto,*">
+
+    <!-- Status, kept above the tabs so scan progress and audio errors stay visible. -->
+    <Grid ColumnDefinitions="*,Auto" Margin="10,6,10,0">
+      <TextBlock Classes="dim" Text="{Binding StatusMessage}" TextTrimming="CharacterEllipsis"
+                 VerticalAlignment="Center" />
+      <TextBlock Grid.Column="1" Classes="time" Margin="12,0,0,0"
+                 Text="{Binding ClockText}" VerticalAlignment="Center" />
+    </Grid>
+
+    <TabControl Grid.Row="1" Classes="phonetabs" TabStripPlacement="Bottom">
+
+      <TabItem Header="MIX">
+        <ScrollViewer>
+          <StackPanel Margin="10" Spacing="10">
+            <views:DeckView DataContext="{Binding DeckA}" />
+
+            <Border Classes="panel">
+              <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="Auto,*,Auto">
+                <TextBlock Classes="heading" Text="A" VerticalAlignment="Center" />
+                <Slider Grid.Column="1" Minimum="0" Maximum="1" Margin="12,0"
+                        Value="{Binding CrossfaderPosition}" />
+                <TextBlock Grid.Column="2" Classes="heading" Text="B" VerticalAlignment="Center" />
+
+                <StackPanel Grid.Row="1" Grid.ColumnSpan="3" Orientation="Horizontal"
+                            HorizontalAlignment="Center" Spacing="10" Margin="0,4,0,0">
+                  <CheckBox Content="auto-cue" IsChecked="{Binding AutoCueEnabled}" />
+                  <TextBlock Classes="dim" Text="fade (s)" VerticalAlignment="Center" />
+                  <NumericUpDown Width="120" Minimum="1" Maximum="120" Increment="1"
+                                 FormatString="0" ParsingNumberStyle="Integer"
+                                 Value="{Binding CrossfadeSeconds}" />
+                </StackPanel>
+              </Grid>
+            </Border>
+
+            <views:DeckView DataContext="{Binding DeckB}" />
+
+            <TextBlock Classes="dim" Text="{Binding AudioStatus}" TextWrapping="Wrap"
+                       HorizontalAlignment="Center" />
+          </StackPanel>
+        </ScrollViewer>
+      </TabItem>
+
+      <TabItem Header="PLAYLISTS">
+        <Grid RowDefinitions="*,Auto,*,Auto" Margin="10">
+          <Border Classes="panel">
+            <Grid RowDefinitions="Auto,*">
+              <TextBlock Classes="heading" Text="{Binding DeckA.Label}" Margin="0,0,0,6" />
+              <views:PlaylistView Grid.Row="1" DataContext="{Binding DeckA}" />
+            </Grid>
+          </Border>
+
+          <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Center"
+                      Spacing="8" Margin="0,8">
+            <Button Content="A ⇣ B" Command="{Binding SendAToBCommand}" />
+            <Button Content="B ⇡ A" Command="{Binding SendBToACommand}" />
+          </StackPanel>
+
+          <Border Grid.Row="2" Classes="panel">
+            <Grid RowDefinitions="Auto,*">
+              <TextBlock Classes="heading" Text="{Binding DeckB.Label}" Margin="0,0,0,6" />
+              <views:PlaylistView Grid.Row="1" DataContext="{Binding DeckB}" />
+            </Grid>
+          </Border>
+
+          <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Center"
+                      Spacing="8" Margin="0,10,0,0">
+            <Button Content="Save playlists" Command="{Binding SavePlaylistsCommand}" />
+            <Button Content="Load playlists" Command="{Binding LoadPlaylistsCommand}" />
+          </StackPanel>
+        </Grid>
+      </TabItem>
+
+      <TabItem Header="LIBRARY">
+        <Grid RowDefinitions="Auto,2*,Auto,3*,Auto" Margin="10">
+          <Grid ColumnDefinitions="*,Auto,Auto">
+            <TextBox PlaceholderText="Search this folder and below…" Text="{Binding SearchText}" />
+            <Button Grid.Column="1" Content="Search" Margin="6,0,0,0"
+                    Command="{Binding SearchCommand}" />
+            <Button Grid.Column="2" Content="Stop" Margin="6,0,0,0"
+                    Command="{Binding CancelScanCommand}" IsEnabled="{Binding IsScanning}" />
+          </Grid>
+
+          <!-- Folder tree, expanded lazily -->
+          <Border Grid.Row="1" Classes="panel" Padding="4" Margin="0,8,0,0">
+            <TreeView ItemsSource="{Binding Roots}" SelectedItem="{Binding SelectedFolder}">
+              <TreeView.Styles>
+                <!-- Without this the node's IsExpanded never fires, so children are
+                     never loaded and the tree cannot be navigated. -->
+                <Style Selector="TreeViewItem" x:DataType="vm:FolderNode">
+                  <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}" />
+                </Style>
+              </TreeView.Styles>
+              <TreeView.ItemTemplate>
+                <TreeDataTemplate ItemsSource="{Binding Children}">
+                  <TextBlock Text="{Binding Name}" FontSize="14" />
+                </TreeDataTemplate>
+              </TreeView.ItemTemplate>
+            </TreeView>
+          </Border>
+
+          <ProgressBar Grid.Row="2" IsIndeterminate="True" Height="3" Margin="0,4,0,0"
+                       IsVisible="{Binding IsScanning}" />
+
+          <!-- Tracks in the selected folder. A list rather than the tablet's grid,
+               which needs far more width than a phone has for its columns. -->
+          <Border Grid.Row="3" Classes="panel" Padding="4" Margin="0,4,0,0">
+            <ListBox Classes="tracks" ItemsSource="{Binding BrowserTracks}"
+                     SelectedItem="{Binding SelectedBrowserTrack}">
+              <ListBox.ItemTemplate>
+                <DataTemplate x:DataType="audio:Track">
+                  <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto">
+                    <TextBlock Text="{Binding Title}" FontSize="14" FontWeight="SemiBold"
+                               TextTrimming="CharacterEllipsis" />
+                    <TextBlock Grid.Row="1" Classes="dim" Text="{Binding Artist}"
+                               TextTrimming="CharacterEllipsis" />
+                    <TextBlock Grid.Column="1" Grid.RowSpan="2" Classes="time" Margin="10,0,0,0"
+                               Text="{Binding DurationText}" VerticalAlignment="Center" />
+                  </Grid>
+                </DataTemplate>
+              </ListBox.ItemTemplate>
+            </ListBox>
+          </Border>
+
+          <Grid Grid.Row="4" ColumnDefinitions="*,8,*" Margin="0,8,0,0">
+            <Button Content="→ Deck A" HorizontalAlignment="Stretch"
+                    HorizontalContentAlignment="Center" Command="{Binding AddToDeckACommand}" />
+            <Button Grid.Column="2" Content="→ Deck B" HorizontalAlignment="Stretch"
+                    HorizontalContentAlignment="Center" Command="{Binding AddToDeckBCommand}" />
+          </Grid>
+        </Grid>
+      </TabItem>
+    </TabControl>
+  </Grid>
+</UserControl>

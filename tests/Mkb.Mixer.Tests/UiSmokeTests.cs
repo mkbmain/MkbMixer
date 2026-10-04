@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Threading;
 using Avalonia.Headless;
+using Avalonia.LogicalTree;
 using Avalonia.Media.Imaging;
 using Mkb.Mixer.App.ViewModels;
 using Mkb.Mixer.App.Views;
@@ -93,5 +94,54 @@ public class UiSmokeTests
 #pragma warning restore CS0618
 
         Assert.True(new FileInfo(output).Length > 10_000, "rendered frame looks empty");
+    });
+
+    /// <summary>
+    /// Renders each tab of the phone layout at a typical phone size, writing one PNG
+    /// per tab next to the desktop snapshot.
+    /// </summary>
+    [Fact]
+    public void RendersPhoneLayoutToPng() => AvaloniaTest.Run(() =>
+    {
+        var engine = new FakeAudioEngine();
+        string settings = Path.Combine(Path.GetTempPath(), $"mkb-ui-{Guid.NewGuid():N}.json");
+        var vm = new MainViewModel(engine, new SettingsStore(settings));
+
+        var a = new Track("/music/sandstorm.mp3", "Sandstorm", "Darude", "Before the Storm", TimeSpan.FromSeconds(224));
+        var b = new Track("/music/kalimba.mp3", "Kalimba", "Mr. Scruff", "Ninja Tuna", TimeSpan.FromSeconds(348));
+        engine.A.Duration = a.Duration;
+        engine.B.Duration = b.Duration;
+        vm.DeckA.LoadAsync(a).Wait();
+        vm.DeckB.LoadAsync(b).Wait();
+        engine.A.Position = TimeSpan.FromSeconds(96);
+        vm.DeckA.Refresh();
+        vm.DeckB.Refresh();
+        vm.DeckA.Playlist.Add(new Track("/m/2.mp3", "Get Up", "Technotronic", "Pump Up the Jam", TimeSpan.FromSeconds(203)));
+        vm.DeckB.Playlist.Add(new Track("/m/4.mp3", "Windowlicker", "Aphex Twin", "Windowlicker", TimeSpan.FromSeconds(366)));
+        vm.BrowserTracks.Add(a);
+        vm.BrowserTracks.Add(b);
+
+        var phone = new PhoneView { DataContext = vm };
+        // A common phone size in device-independent pixels.
+        var window = new Avalonia.Controls.Window { Content = phone, Width = 393, Height = 852 };
+        window.Show();
+
+        var tabs = phone.GetLogicalDescendants().OfType<Avalonia.Controls.TabControl>().Single();
+        string dir = Path.GetDirectoryName(Environment.GetEnvironmentVariable("MKB_UI_SNAPSHOT")
+                                           ?? Path.Combine(Path.GetTempPath(), "x.png"))!;
+        for (int i = 0; i < tabs.ItemCount; i++)
+        {
+            tabs.SelectedIndex = i;
+            Dispatcher.UIThread.RunJobs();
+            window.UpdateLayout();
+
+            string output = Path.Combine(dir, $"mkb-mixer-phone-{i}.png");
+            using Bitmap frame = window.CaptureRenderedFrame()
+                                 ?? throw new InvalidOperationException("no frame captured");
+#pragma warning disable CS0618
+            frame.Save(output);
+#pragma warning restore CS0618
+            Assert.True(new FileInfo(output).Length > 5_000, $"tab {i} looks empty");
+        }
     });
 }
