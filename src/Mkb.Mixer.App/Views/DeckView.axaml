@@ -2,6 +2,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:Mkb.Mixer.App.ViewModels"
              xmlns:ctrl="using:Mkb.Mixer.App.Controls"
+             xmlns:views="using:Mkb.Mixer.App.Views"
              x:Class="Mkb.Mixer.App.Views.DeckView"
              x:DataType="vm:DeckViewModel">
   <Border Classes="panel">
@@ -40,38 +41,16 @@
         <Button Grid.Column="2" Classes="transport" Content="■" Margin="6,0,0,0"
                 Command="{Binding StopCommand}" ToolTip.Tip="Stop" />
 
-        <TextBlock Grid.Column="4" Classes="dim" Text="tempo" VerticalAlignment="Center"
+        <TextBlock Grid.Column="4" Classes="dim tempolabel" Text="tempo" VerticalAlignment="Center"
                    Margin="0,0,8,0" />
-        <Slider Grid.Column="5" Width="130" Minimum="0.5" Maximum="1.5"
+        <Slider Grid.Column="5" Classes="tempo" Minimum="0.5" Maximum="1.5"
                 TickFrequency="0.25" Value="{Binding Tempo}"
                 ToolTip.Tip="Playback speed. Pitch is preserved." />
       </Grid>
 
-      <!-- Playlist for this deck -->
-      <Grid Grid.Row="5" RowDefinitions="Auto,*" Margin="0,12,0,0">
-        <Grid ColumnDefinitions="*,Auto,Auto,Auto,Auto">
-          <TextBlock Classes="dim" Text="PLAYLIST" VerticalAlignment="Center" />
-          <Button Grid.Column="1" Classes="tiny" Content="▲" Command="{Binding MoveUpCommand}"
-                  ToolTip.Tip="Move selected track up" />
-          <Button Grid.Column="2" Classes="tiny" Content="▼" Margin="4,0,0,0"
-                  Command="{Binding MoveDownCommand}" ToolTip.Tip="Move selected track down" />
-          <Button Grid.Column="3" Classes="tiny" Content="Load" Margin="4,0,0,0"
-                  Command="{Binding LoadSelectedCommand}" ToolTip.Tip="Load selected track onto this deck" />
-          <Button Grid.Column="4" Classes="tiny" Content="✕" Margin="4,0,0,0"
-                  Command="{Binding RemoveSelectedCommand}" ToolTip.Tip="Remove selected track" />
-        </Grid>
-
-        <ListBox Grid.Row="1" Classes="playlist" Margin="0,6,0,0"
-                 ItemsSource="{Binding Playlist}"
-                 SelectedItem="{Binding SelectedPlaylistItem}">
-          <ListBox.ItemTemplate>
-            <DataTemplate>
-              <TextBlock Text="{Binding Display}" FontSize="12"
-                         TextTrimming="CharacterEllipsis" />
-            </DataTemplate>
-          </ListBox.ItemTemplate>
-        </ListBox>
-      </Grid>
+      <!-- Playlist for this deck. The phone layout hides it here and shows it on
+           its own tab instead. -->
+      <views:PlaylistView Grid.Row="5" Classes="deckplaylist" Margin="0,12,0,0" />
     </Grid>
   </Border>
 </UserControl>

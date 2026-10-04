@@ -14,6 +14,12 @@ public partial class App : Application
     /// </summary>
     public MainViewModel? ViewModel { get; private set; }
 
+    /// <summary>
+    /// Set by the Android activity before its view is created, when the screen is
+    /// too small for the two-deck tablet layout.
+    /// </summary>
+    public static bool UsePhoneLayout { get; set; }
+
     public override void Initialize() => AvaloniaXamlLoader.Load(this);
 
     public override void OnFrameworkInitializationCompleted()
@@ -35,7 +41,13 @@ public partial class App : Application
         else if (ApplicationLifetime is IActivityApplicationLifetime activity)
         {
             // Android: the factory runs each time the activity needs a view.
-            activity.MainViewFactory = () => new MainView { DataContext = ViewModel ??= new MainViewModel() };
+            activity.MainViewFactory = () =>
+            {
+                var viewModel = ViewModel ??= new MainViewModel();
+                return UsePhoneLayout
+                    ? new PhoneView { DataContext = viewModel }
+                    : new MainView { DataContext = viewModel };
+            };
         }
         else if (ApplicationLifetime is ISingleViewApplicationLifetime singleView)
         {

@@ -1,6 +1,7 @@
 <Styles xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:ctrl="using:Mkb.Mixer.App.Controls">
+        xmlns:ctrl="using:Mkb.Mixer.App.Controls"
+        xmlns:views="using:Mkb.Mixer.App.Views">
   <Styles.Resources>
     <!-- Gold is the one deliberate carry-over from the original's black-and-gold chrome. -->
     <Color x:Key="AccentColor">#FFC83C</Color>
@@ -80,6 +81,10 @@
     <Setter Property="MinHeight" Value="120" />
   </Style>
 
+  <Style Selector="Slider.tempo">
+    <Setter Property="Width" Value="130" />
+  </Style>
+
   <!-- Tablet. The deck row sizes to its content, which left the library only a
        couple of rows, so on touch the deck folds its title into the header row and
        its times into the transport row, and caps the playlist at about three tracks. -->
@@ -121,5 +126,65 @@
   <Style Selector=".touch DataGrid">
     <Setter Property="ScrollViewer.AllowAutoHide" Value="False" />
     <Setter Property="IsScrollInertiaEnabled" Value="True" />
+  </Style>
+
+  <!-- Phone. PhoneView carries both "touch" and "phone", so these come after the
+       tablet styles to override them. The deck is too narrow to fold its title and
+       times into the other rows, but it has the height, because its playlist moves
+       to a tab of its own. -->
+  <Style Selector=".phone TextBlock.nowplaying">
+    <Setter Property="Grid.Row" Value="1" />
+    <Setter Property="Margin" Value="0,6,0,6" />
+  </Style>
+
+  <Style Selector=".phone ctrl|WaveformView.deck">
+    <Setter Property="Height" Value="56" />
+  </Style>
+
+  <Style Selector=".phone Grid.times">
+    <Setter Property="Grid.Row" Value="3" />
+    <Setter Property="Margin" Value="0,4,0,8" />
+  </Style>
+
+  <Style Selector=".phone Button.transport">
+    <Setter Property="Width" Value="52" />
+    <Setter Property="Height" Value="44" />
+  </Style>
+
+  <Style Selector=".phone TextBlock.tempolabel">
+    <Setter Property="IsVisible" Value="False" />
+  </Style>
+
+  <Style Selector=".phone Slider.tempo">
+    <Setter Property="Width" Value="110" />
+  </Style>
+
+  <Style Selector=".phone views|PlaylistView.deckplaylist">
+    <Setter Property="IsVisible" Value="False" />
+  </Style>
+
+  <!-- On the playlists tab each list fills its half of the screen. -->
+  <Style Selector=".phone ListBox.playlist">
+    <Setter Property="MaxHeight" Value="Infinity" />
+  </Style>
+
+  <Style Selector=".phone Button.tiny">
+    <Setter Property="Padding" Value="12,8" />
+    <Setter Property="FontSize" Value="13" />
+  </Style>
+
+  <Style Selector=".phone ListBox.tracks ListBoxItem">
+    <Setter Property="Padding" Value="10,6" />
+  </Style>
+
+  <Style Selector="TabControl.phonetabs TabItem">
+    <Setter Property="FontSize" Value="15" />
+    <Setter Property="FontWeight" Value="Bold" />
+    <Setter Property="Padding" Value="14,6" />
+    <Setter Property="MinHeight" Value="44" />
+  </Style>
+
+  <Style Selector="TabControl.phonetabs TabItem:selected">
+    <Setter Property="Foreground" Value="{StaticResource Accent}" />
   </Style>
 </Styles>

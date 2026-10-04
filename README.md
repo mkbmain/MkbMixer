@@ -1,6 +1,6 @@
 # MKB Music Mixer
 
-A cross-platform dual-deck DJ mixer for Linux, macOS, Windows and Android tablets.
+A cross-platform dual-deck DJ mixer for Linux, macOS, Windows and Android (tablets and phones).
 
 This is a rewrite of a .NET 2.0 WinForms application from roughly 2005. The original
 was Windows-only by construction: it drove two `WMPLib.WindowsMediaPlayer` COM
@@ -20,7 +20,7 @@ the next track in as the current one runs out — is unchanged.
 dotnet run --project src/Mkb.Mixer.App.Desktop
 ```
 
-## Android (tablets)
+## Android
 
 Needs the .NET Android workload (`dotnet workload install android`) and an
 Android SDK. To build an APK into `dist/`:
@@ -41,8 +41,11 @@ dotnet build src/Mkb.Mixer.App.Android -t:Run
 
 The app asks for access to audio files on first launch; without it the library
 browser shows folders but no tracks. It browses shared storage
-(`/storage/emulated/0`, starting in `Music`) by path. It is locked to landscape
-because the layout needs a tablet's width; phones are not supported.
+(`/storage/emulated/0`, starting in `Music`) by path.
+
+On a tablet the app is locked to landscape and shows the desktop layout. On a
+phone (shortest side under 600dp) it is locked upright and splits into three
+tabs: **Mix** (both decks and the crossfader), **Playlists** and **Library**.
 
 Current limitations on Android:
 

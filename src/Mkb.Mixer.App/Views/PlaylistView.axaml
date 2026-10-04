@@ -1,0 +1,30 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Mkb.Mixer.App.ViewModels"
+             x:Class="Mkb.Mixer.App.Views.PlaylistView"
+             x:DataType="vm:DeckViewModel">
+  <Grid RowDefinitions="Auto,*">
+    <Grid ColumnDefinitions="*,Auto,Auto,Auto,Auto">
+      <TextBlock Classes="dim" Text="PLAYLIST" VerticalAlignment="Center" />
+      <Button Grid.Column="1" Classes="tiny" Content="▲" Command="{Binding MoveUpCommand}"
+              ToolTip.Tip="Move selected track up" />
+      <Button Grid.Column="2" Classes="tiny" Content="▼" Margin="4,0,0,0"
+              Command="{Binding MoveDownCommand}" ToolTip.Tip="Move selected track down" />
+      <Button Grid.Column="3" Classes="tiny" Content="Load" Margin="4,0,0,0"
+              Command="{Binding LoadSelectedCommand}" ToolTip.Tip="Load selected track onto this deck" />
+      <Button Grid.Column="4" Classes="tiny" Content="✕" Margin="4,0,0,0"
+              Command="{Binding RemoveSelectedCommand}" ToolTip.Tip="Remove selected track" />
+    </Grid>
+
+    <ListBox Grid.Row="1" Classes="playlist" Margin="0,6,0,0"
+             ItemsSource="{Binding Playlist}"
+             SelectedItem="{Binding SelectedPlaylistItem}">
+      <ListBox.ItemTemplate>
+        <DataTemplate>
+          <TextBlock Text="{Binding Display}" FontSize="12"
+                     TextTrimming="CharacterEllipsis" />
+        </DataTemplate>
+      </ListBox.ItemTemplate>
+    </ListBox>
+  </Grid>
+</UserControl>

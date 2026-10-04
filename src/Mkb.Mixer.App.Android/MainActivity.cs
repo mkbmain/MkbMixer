@@ -9,15 +9,15 @@ using Avalonia.Threading;
 namespace Mkb.Mixer.App.Android;
 
 /// <summary>
-/// The layout is two decks side by side over a library browser, which only fits a
-/// tablet held sideways, so the activity is locked to landscape.
+/// A tablet gets two decks side by side over a library browser, which only fits
+/// held sideways, so it is locked to landscape. A phone gets a tabbed layout
+/// instead, locked upright.
 /// </summary>
 [Activity(
     Label = "MKB Mixer",
     Theme = "@style/MyTheme.NoActionBar",
     Icon = "@drawable/icon",
     MainLauncher = true,
-    ScreenOrientation = ScreenOrientation.SensorLandscape,
     ConfigurationChanges = ConfigChanges.Orientation | ConfigChanges.ScreenSize | ConfigChanges.UiMode)]
 public class MainActivity : AvaloniaMainActivity
 {
@@ -28,8 +28,16 @@ public class MainActivity : AvaloniaMainActivity
             ? Manifest.Permission.ReadMediaAudio
             : Manifest.Permission.ReadExternalStorage;
 
+    /// <summary>Android's own phone/tablet boundary: 600dp on the shortest side.</summary>
+    private const int TabletSmallestWidthDp = 600;
+
     protected override void OnCreate(Bundle? savedInstanceState)
     {
+        // Decided before base.OnCreate, which is where Avalonia builds the view.
+        bool phone = Resources?.Configuration?.SmallestScreenWidthDp < TabletSmallestWidthDp;
+        App.UsePhoneLayout = phone;
+        RequestedOrientation = phone ? ScreenOrientation.SensorPortrait : ScreenOrientation.SensorLandscape;
+
         base.OnCreate(savedInstanceState);
 
         // Without this the library browser can list folders but no audio files.
