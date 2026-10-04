@@ -2,6 +2,8 @@
 
 A cross-platform dual-deck DJ mixer for Linux, macOS, Windows and Android (tablets and phones).
 
+![Two decks playing on an Android tablet, with the crossfader and library below](Pics/Screenshot_20261004-160401.png)
+
 This is a rewrite of a .NET 2.0 WinForms application from roughly 2005. The original
 was Windows-only by construction: it drove two `WMPLib.WindowsMediaPlayer` COM
 objects, enumerated drive letters, and assumed `\` path separators throughout.
@@ -19,6 +21,10 @@ the next track in as the current one runs out — is unchanged.
 ```bash
 dotnet run --project src/Mkb.Mixer.App.Desktop
 ```
+
+Works on Linux: it is developed and tested there, with audio through
+PulseAudio or PipeWire (JACK and ALSA as fallbacks). If you get no sound, see
+[If playback is silent](#if-playback-is-silent).
 
 ## Android
 
@@ -42,6 +48,8 @@ dotnet build src/Mkb.Mixer.App.Android -t:Run
 The app asks for access to audio files on first launch; without it the library
 browser shows folders but no tracks. It browses shared storage
 (`/storage/emulated/0`, starting in `Music`) by path.
+
+![First launch on a tablet: empty decks and the library at the Music folder](Pics/Screenshot_20261004-160332.png)
 
 On a tablet the app is locked to landscape and shows the desktop layout. On a
 phone (shortest side under 600dp) it is locked upright and splits into three
