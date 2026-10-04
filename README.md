@@ -63,11 +63,12 @@ the app. The service stops after 10 seconds of silence.
 
 The notification, the lock screen and headset or Bluetooth buttons pause and
 resume the whole mix. The mix also pauses when another app starts playing music,
-during a phone call (resuming afterwards if the call is under 10 minutes), and when the output it is playing
-through disconnects — wired headphones unplugged, or a Bluetooth speaker going
-out of range. A text arriving, a voice note, or a Bluetooth device that is not
-the audio output (a watch, say) disconnecting does not interrupt it. After one of
-those pauses the play button keeps working for 10 minutes.
+during a phone call (resuming afterwards if the call is under 10 minutes), and
+when the output it is playing through disconnects — wired headphones unplugged,
+or a Bluetooth speaker going out of range. A text arriving, a voice note, or a
+Bluetooth device that is not the audio output (a watch, say) disconnecting does
+not interrupt it. After one of those pauses the play button keeps working for 10
+minutes.
 
 ## Headphone cue
 
@@ -80,6 +81,10 @@ mode in the *headphones* row under the crossfader:
 | **Off** | No headphones. Normal stereo output. |
 | **Split** | One output and a splitter cable — the usual phone setup. The room mix plays in mono on the left channel and the headphones in mono on the right. |
 | **Device** | A second output, such as USB headphones or a second sound card. The room mix stays stereo on the main output. |
+
+In Device mode, pick the output your headphones are on from the list. The output
+the room mix is playing on is not offered, and if the headphone output disappears
+mid-set the cue switches itself off.
 
 The *cue — master* slider sets what the headphones hear, from the cued decks alone
 to the room mix alone. Most phones can only play through one output at a time, so

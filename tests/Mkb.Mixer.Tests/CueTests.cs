@@ -165,6 +165,20 @@ public class CueRingBufferTests
     }
 
     [Fact]
+    public void SkipAheadKeepsLeftAndRightAlignedForAnOddDestination()
+    {
+        var ring = new CueRingBuffer(capacity: 64, highWater: 8, channels: 2);
+        ring.Write(Range(0, 40));   // even index = left, odd = right
+
+        var dest = new float[5];
+        ring.Read(dest);
+
+        Assert.Equal(Range(36, 4), dest[..4]);   // 2 whole frames, newest ones
+        Assert.Equal(0f, dest[4]);
+        Assert.Equal(0, ring.Count % 2);
+    }
+
+    [Fact]
     public void WrapsAroundInOrder()
     {
         var ring = new CueRingBuffer(capacity: 8, highWater: 8, channels: 2);

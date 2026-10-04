@@ -52,7 +52,7 @@ public sealed class CueRingBuffer
         long r = _read;
         long w = Volatile.Read(ref _written);
         if (w - r > destination.Length + _highWater)
-            r = w - destination.Length;   // fell behind: jump to the newest audio
+            r = w - (destination.Length - destination.Length % _channels);   // fell behind: newest whole frames
 
         int n = (int)Math.Min(w - r, destination.Length);
         n -= n % _channels;
