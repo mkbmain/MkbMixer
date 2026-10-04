@@ -4,3 +4,8 @@ obj/
 *.suo
 .vs/
 .idea/
+dist/
+*.apk
+*.aab
+*.keystore
+*.jks

@@ -23,17 +23,20 @@ dotnet run --project src/Mkb.Mixer.App.Desktop
 ## Android (tablets)
 
 Needs the .NET Android workload (`dotnet workload install android`) and an
-Android SDK. With a tablet connected over USB with debugging enabled:
+Android SDK. To build an APK into `dist/`:
+
+```bash
+./build-apk.sh            # Release
+./build-apk.sh Debug
+adb install -r dist/mkb-mixer-1.0-release.apk
+```
+
+It is signed with your local debug key unless `ANDROID_KEYSTORE`,
+`ANDROID_KEY_ALIAS` and `ANDROID_KEYSTORE_PASSWORD` are set; see the top of the
+script. For a quick edit-and-run loop with a tablet connected over USB:
 
 ```bash
 dotnet build src/Mkb.Mixer.App.Android -t:Run
-```
-
-or build the APK and install it yourself:
-
-```bash
-dotnet build src/Mkb.Mixer.App.Android
-adb install src/Mkb.Mixer.App.Android/bin/Debug/net10.0-android/com.mkbmain.mixer-Signed.apk
 ```
 
 The app asks for access to audio files on first launch; without it the library
