@@ -31,6 +31,8 @@ public sealed partial class DeckViewModel : ViewModelBase
     }
 
     public DeckId Id => _deck.Id;
+    /// <summary>The deck's live transport state, not the 100 ms-stale <see cref="IsPlaying"/>.</summary>
+    public PlaybackState State => _deck.State;
     public string Label => _deck.Id == DeckId.A ? "DECK A" : "DECK B";
 
     /// <summary>The queue this deck plays through, and that the auto-cue pulls from.</summary>

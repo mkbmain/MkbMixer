@@ -23,6 +23,7 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
     private readonly Stopwatch _clock = Stopwatch.StartNew();
     private CancellationTokenSource? _scan;
     private bool _suppressFaderFeedback;
+    private readonly System.Collections.Generic.List<DeckViewModel> _pausedByPauseAll = [];
 
     public MainViewModel() : this(new SoundFlowAudioEngine(), SettingsStore.Default()) { }
 
@@ -111,6 +112,53 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
         };
         // After the summary, so whoever reacts to this sees the matching text.
         IsAnyDeckPlaying = DeckA.IsPlaying || DeckB.IsPlaying;
+    }
+
+    /// <summary>
+    /// Pauses every playing deck and remembers which, for the platform's media
+    /// controls and audio focus. A call with nothing playing leaves the memory of
+    /// the previous pause intact, so a phone call arriving after a lock-screen pause
+    /// cannot make the later resume forget what to restart.
+    /// </summary>
+    /// <returns>True when something was paused.</returns>
+    public bool PauseAll()
+    {
+        DeckViewModel[] playing = new[] { DeckA, DeckB }
+            .Where(d => d.State == PlaybackState.Playing)
+            .ToArray();
+        if (playing.Length == 0) return false;
+
+        _pausedByPauseAll.Clear();
+        foreach (DeckViewModel deck in playing)
+        {
+            deck.PauseCommand.Execute(null);
+            _pausedByPauseAll.Add(deck);
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// Resumes what <see cref="PauseAll"/> paused. With nothing remembered and
+    /// nothing playing, it presses play on the deck in front on the crossfader.
+    /// </summary>
+    public void ResumePaused()
+    {
+        DeckViewModel[] toResume = _pausedByPauseAll
+            .Where(d => d.State == PlaybackState.Paused)
+            .ToArray();
+        _pausedByPauseAll.Clear();
+
+        if (toResume.Length > 0)
+        {
+            foreach (DeckViewModel deck in toResume)
+                deck.PlayCommand.Execute(null);
+            return;
+        }
+
+        if (DeckA.State == PlaybackState.Playing || DeckB.State == PlaybackState.Playing)
+            return;
+
+        (CrossfaderPosition <= Crossfader.Centre ? DeckA : DeckB).PlayCommand.Execute(null);
     }
 
     public DeckViewModel DeckA { get; }
