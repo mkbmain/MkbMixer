@@ -17,12 +17,16 @@ internal sealed class SoundFlowDeck : IDeck
     private float _volume = 1f;
     private float _tempo = 1f;
     private bool _muted;
+    private readonly CueTap _tap;
 
-    public SoundFlowDeck(DeckId id, MiniAudioEngine? engine, SoundFlow.Components.Mixer? output)
+    public SoundFlowDeck(DeckId id, MiniAudioEngine? engine, SoundFlow.Components.Mixer? output, CueBus cueBus)
     {
         Id = id;
         _engine = engine;
         _output = output;
+        // One tap for the deck's lifetime, moved onto each new player in Load, so
+        // the cue stays on across track changes.
+        _tap = new CueTap(cueBus);
     }
 
     public DeckId Id { get; }
@@ -55,6 +59,12 @@ internal sealed class SoundFlowDeck : IDeck
     {
         get => _muted;
         set { _muted = value; ApplyGain(); }
+    }
+
+    public bool IsCued
+    {
+        get => _tap.IsCued;
+        set => _tap.IsCued = value;
     }
 
     public float Tempo
@@ -96,6 +106,7 @@ internal sealed class SoundFlowDeck : IDeck
                 Volume = _muted ? 0f : _volume
             };
             _player.PlaybackEnded += OnPlaybackEnded;
+            _player.AddModifier(_tap);
             _output?.AddComponent(_player);
         }
     }
@@ -128,6 +139,7 @@ internal sealed class SoundFlowDeck : IDeck
             _player.PlaybackEnded -= OnPlaybackEnded;
             _player.Stop();
             _output?.RemoveComponent(_player);
+            _player.RemoveModifier(_tap);
             _player.Dispose();
             _player = null;
         }

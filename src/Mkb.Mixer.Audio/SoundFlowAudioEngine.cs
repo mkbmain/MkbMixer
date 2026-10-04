@@ -1,4 +1,5 @@
 using System.Linq;
+using SoundFlow.Abstracts;
 using SoundFlow.Abstracts.Devices;
 using SoundFlow.Backends.MiniAudio;
 using SoundFlow.Backends.MiniAudio.Enums;
@@ -20,6 +21,11 @@ public sealed class SoundFlowAudioEngine : IAudioEngine
     private readonly SoundFlowDeck _b;
     private readonly List<string> _diagnostics = [];
     private bool _disposed;
+    private readonly CueBus _cueBus = new();
+    private AudioFormat _outputFormat = Format;
+    private SoundModifier? _cueModifier;
+    private AudioPlaybackDevice? _cueDevice;
+    private volatile float _cueMix;
 
     /// <summary>Public so the <c>--audio-info</c> diagnostic can probe with the same format.</summary>
     public static AudioFormat OutputFormat => Format;
@@ -121,8 +127,8 @@ public sealed class SoundFlowAudioEngine : IAudioEngine
             OutputError ??= "no usable audio backend";
         }
 
-        _a = new SoundFlowDeck(DeckId.A, _engine, _device?.MasterMixer);
-        _b = new SoundFlowDeck(DeckId.B, _engine, _device?.MasterMixer);
+        _a = new SoundFlowDeck(DeckId.A, _engine, _device?.MasterMixer, _cueBus);
+        _b = new SoundFlowDeck(DeckId.B, _engine, _device?.MasterMixer, _cueBus);
     }
 
     /// <summary>
@@ -225,6 +231,7 @@ public sealed class SoundFlowAudioEngine : IAudioEngine
                     AudioPlaybackDevice device = engine.InitializePlaybackDevice(target, format);
                     device.Start();
                     opened = device;
+                    _outputFormat = format;
                     route = $"{backend} — {target?.Name ?? "default"} "
                           + $"({format.SampleRate}Hz {format.Format})";
                     return true;
@@ -279,6 +286,115 @@ public sealed class SoundFlowAudioEngine : IAudioEngine
     /// <summary>True when a backend worked but offered nothing except a null sink.</summary>
     public bool OnlyDummyDevices { get; private set; }
 
+    public CueMode CueMode { get; private set; }
+    public string? CueDevice { get; private set; }
+
+    public float CueMix
+    {
+        get => _cueMix;
+        set => _cueMix = Math.Clamp(value, 0f, 1f);
+    }
+
+    public IReadOnlyList<string> CueDeviceNames()
+    {
+        if (_engine is null) return [];
+        try
+        {
+            _engine.UpdateAudioDevicesInfo();
+            return _engine.PlaybackDevices
+                .Where(d => !IsDummyDevice(d.Name))
+                .Select(d => d.Name)
+                .ToList();
+        }
+        catch
+        {
+            return [];
+        }
+    }
+
+    public bool TrySetCue(CueMode mode, string? deviceName, out string? error)
+    {
+        error = null;
+        TearDownCue();
+        if (mode == CueMode.Off) return true;
+
+        if (!IsOutputAvailable || _engine is null || _device is null)
+        {
+            error = "there is no audio output";
+            return false;
+        }
+
+        if (mode == CueMode.Split)
+        {
+            _cueModifier = new CueSplitModifier(_cueBus, () => _cueMix);
+            _device.MasterMixer.AddModifier(_cueModifier);
+            _cueBus.Active = true;
+            CueMode = CueMode.Split;
+            return true;
+        }
+
+        DeviceInfo[] matches;
+        try
+        {
+            _engine.UpdateAudioDevicesInfo();
+            matches = _engine.PlaybackDevices.Where(d => d.Name == deviceName).ToArray();
+        }
+        catch (Exception e)
+        {
+            error = e.Message;
+            return false;
+        }
+        if (matches.Length == 0)
+        {
+            error = $"cue device \"{deviceName}\" not found";
+            return false;
+        }
+
+        try
+        {
+            // The cue device runs at the master's format, so the ring carries
+            // samples at the rate the cue device consumes them.
+            var ring = new CueRingBuffer(
+                capacity: _outputFormat.SampleRate / 5 * _outputFormat.Channels,    // 200 ms
+                highWater: _outputFormat.SampleRate / 20 * _outputFormat.Channels,  // 50 ms
+                channels: _outputFormat.Channels);
+            AudioPlaybackDevice cue = _engine.InitializePlaybackDevice(matches[0], _outputFormat);
+            _cueDevice = cue;
+            cue.MasterMixer.AddComponent(new CueSource(_engine, _outputFormat, ring));
+            cue.Start();
+
+            _cueModifier = new CueFeedModifier(_cueBus, ring, () => _cueMix);
+            _device.MasterMixer.AddModifier(_cueModifier);
+            _cueBus.Active = true;
+            CueMode = CueMode.Device;
+            CueDevice = matches[0].Name;
+            return true;
+        }
+        catch (Exception e)
+        {
+            TearDownCue();
+            error = e.Message;
+            return false;
+        }
+    }
+
+    private void TearDownCue()
+    {
+        _cueBus.Active = false;
+        if (_cueModifier is not null)
+        {
+            _device?.MasterMixer.RemoveModifier(_cueModifier);
+            _cueModifier = null;
+        }
+        if (_cueDevice is not null)
+        {
+            try { _cueDevice.Dispose(); } catch { /* already gone, e.g. unplugged */ }
+            _cueDevice = null;
+        }
+        CueMode = CueMode.Off;
+        CueDevice = null;
+    }
+
     public void ApplyCrossfader(float position)
     {
         var (gainA, gainB) = Crossfader.Gains(position);
@@ -321,6 +437,7 @@ public sealed class SoundFlowAudioEngine : IAudioEngine
     {
         if (_disposed) return;
         _disposed = true;
+        TearDownCue();
         _a.Dispose();
         _b.Dispose();
         _device?.Dispose();
