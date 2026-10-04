@@ -147,10 +147,24 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
 
     private void OnTick(object? sender, EventArgs e) => Tick(_clock.Elapsed);
 
-    private static string DefaultFolder() =>
-        Environment.GetFolderPath(Environment.SpecialFolder.MyMusic) is { Length: > 0 } m && Directory.Exists(m)
+    /// <summary>
+    /// Shared storage on Android: what the user sees as "Internal storage". The
+    /// .NET special folders point into the app's private sandbox there, which never
+    /// holds any music.
+    /// </summary>
+    private const string AndroidStorage = "/storage/emulated/0";
+
+    private static string DefaultFolder()
+    {
+        if (OperatingSystem.IsAndroid())
+            return Path.Combine(AndroidStorage, "Music") is var music && Directory.Exists(music)
+                ? music
+                : AndroidStorage;
+
+        return Environment.GetFolderPath(Environment.SpecialFolder.MyMusic) is { Length: > 0 } m && Directory.Exists(m)
             ? m
             : Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+    }
 
     /// <summary>
     /// Populates the browser roots. The original enumerated Windows drive letters,
@@ -166,6 +180,12 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
     private static System.Collections.Generic.IEnumerable<string> CandidateRoots()
     {
         yield return DefaultFolder();
+        if (OperatingSystem.IsAndroid())
+        {
+            // "/" and the app's own home directory are useless to browse on Android.
+            yield return AndroidStorage;
+            yield break;
+        }
         yield return Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         if (OperatingSystem.IsWindows())
             foreach (var d in DriveInfo.GetDrives().Where(d => d.IsReady))
@@ -328,12 +348,21 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
     /// <summary>Persists settings and playlists on the way out.</summary>
     public void SaveState(double windowWidth, double windowHeight)
     {
+        _settings.WindowWidth = windowWidth;
+        _settings.WindowHeight = windowHeight;
+        SaveState();
+    }
+
+    /// <summary>
+    /// Persists settings and playlists without touching the window size. Android has
+    /// no window and no reliable "closing" moment, so it calls this when paused.
+    /// </summary>
+    public void SaveState()
+    {
         _settings.LastFolder = CurrentFolder;
         _settings.CrossfadeSeconds = CrossfadeSeconds;
         _settings.AutoCueEnabled = AutoCueEnabled;
         _settings.CrossfaderPosition = CrossfaderPosition;
-        _settings.WindowWidth = windowWidth;
-        _settings.WindowHeight = windowHeight;
         _settingsStore.Save(_settings);
         SavePlaylists();
     }

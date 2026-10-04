@@ -18,15 +18,15 @@
         </Button>
       </Grid>
 
-      <TextBlock Grid.Row="1" Classes="nowplaying" Margin="0,8,0,6"
+      <TextBlock Classes="nowplaying"
                  Text="{Binding NowPlaying}" ToolTip.Tip="{Binding NowPlaying}" />
 
       <!-- Waveform: click or drag anywhere to seek -->
-      <ctrl:WaveformView Grid.Row="2" Name="Wave" Height="72"
+      <ctrl:WaveformView Grid.Row="2" Name="Wave" Classes="deck"
                          Waveform="{Binding Waveform}"
                          Progress="{Binding Progress}" />
 
-      <Grid Grid.Row="3" ColumnDefinitions="Auto,*,Auto" Margin="0,4,0,10">
+      <Grid Classes="times" ColumnDefinitions="Auto,*,Auto">
         <TextBlock Classes="time" Text="{Binding Elapsed}" />
         <TextBlock Grid.Column="2" Classes="time" Text="{Binding Remaining}" />
       </Grid>
@@ -61,7 +61,7 @@
                   Command="{Binding RemoveSelectedCommand}" ToolTip.Tip="Remove selected track" />
         </Grid>
 
-        <ListBox Grid.Row="1" Margin="0,6,0,0" MinHeight="120"
+        <ListBox Grid.Row="1" Classes="playlist" Margin="0,6,0,0"
                  ItemsSource="{Binding Playlist}"
                  SelectedItem="{Binding SelectedPlaylistItem}">
           <ListBox.ItemTemplate>
