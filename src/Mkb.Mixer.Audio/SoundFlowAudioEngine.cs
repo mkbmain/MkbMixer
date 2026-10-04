@@ -25,6 +25,9 @@ public sealed class SoundFlowAudioEngine : IAudioEngine
     private AudioFormat _outputFormat = Format;
     private SoundModifier? _cueModifier;
     private AudioPlaybackDevice? _cueDevice;
+    private readonly CueWatchdog _cueWatchdog = new();
+    private string? _masterDeviceName;      // null with _masterIsDefault: opened "the default"
+    private bool _masterIsDefault;
     private volatile float _cueMix;
 
     /// <summary>Public so the <c>--audio-info</c> diagnostic can probe with the same format.</summary>
@@ -232,6 +235,8 @@ public sealed class SoundFlowAudioEngine : IAudioEngine
                     device.Start();
                     opened = device;
                     _outputFormat = format;
+                    _masterDeviceName = target?.Name;
+                    _masterIsDefault = target is null;
                     route = $"{backend} — {target?.Name ?? "default"} "
                           + $"({format.SampleRate}Hz {format.Format})";
                     return true;
@@ -303,6 +308,7 @@ public sealed class SoundFlowAudioEngine : IAudioEngine
             _engine.UpdateAudioDevicesInfo();
             return _engine.PlaybackDevices
                 .Where(d => !IsDummyDevice(d.Name))
+                .Where(d => !CueDeviceRules.IsMasterOutput(d.Name, d.IsDefault, _masterDeviceName, _masterIsDefault))
                 .Select(d => d.Name)
                 .ToList();
         }
@@ -338,6 +344,12 @@ public sealed class SoundFlowAudioEngine : IAudioEngine
         {
             _engine.UpdateAudioDevicesInfo();
             matches = _engine.PlaybackDevices.Where(d => d.Name == deviceName).ToArray();
+            if (matches.Any(d => CueDeviceRules.IsMasterOutput(d.Name, d.IsDefault, _masterDeviceName, _masterIsDefault)))
+            {
+                // The headphone feed on the room's own output would be heard by the room.
+                error = $"\"{deviceName}\" is the room output, not a headphone output";
+                return false;
+            }
         }
         catch (Exception e)
         {
@@ -360,7 +372,8 @@ public sealed class SoundFlowAudioEngine : IAudioEngine
                 channels: _outputFormat.Channels);
             AudioPlaybackDevice cue = _engine.InitializePlaybackDevice(matches[0], _outputFormat);
             _cueDevice = cue;
-            cue.MasterMixer.AddComponent(new CueSource(_engine, _outputFormat, ring));
+            cue.MasterMixer.AddComponent(new CueSource(_engine, _outputFormat, ring, _cueWatchdog));
+            _cueWatchdog.Arm(Environment.TickCount64);
             cue.Start();
 
             _cueModifier = new CueFeedModifier(_cueBus, ring, () => _cueMix);
@@ -378,8 +391,14 @@ public sealed class SoundFlowAudioEngine : IAudioEngine
         }
     }
 
+    public string? CueFault =>
+        CueMode == CueMode.Device && _cueWatchdog.IsStalled(Environment.TickCount64)
+            ? $"cue device \"{CueDevice}\" stopped responding"
+            : null;
+
     private void TearDownCue()
     {
+        _cueWatchdog.Disarm();
         _cueBus.Active = false;
         if (_cueModifier is not null)
         {

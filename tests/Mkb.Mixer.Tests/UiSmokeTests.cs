@@ -111,6 +111,7 @@ public class UiSmokeTests
         vm.AutoCueEnabled = true;
         vm.StatusMessage = "3 track(s) in Demo";
         vm.CueMode = CueMode.Device;
+        vm.CueDevice = "Fake USB";
         vm.DeckB.IsCued = true;
         vm.DeckA.Shuffle = true;
 

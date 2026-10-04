@@ -109,6 +109,13 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
         DeckB.Refresh();
         ClockText = DateTime.Now.ToLongTimeString();
         _autoCue.Tick(now);
+        if (CueMode == CueMode.Device && _engine.CueFault is { } fault)
+        {
+            // Switching off tears the device down, so its stream cannot be moved to
+            // the room speakers by the backend.
+            CueMode = CueMode.Off;
+            StatusMessage = $"Headphone cue is off: {fault}";
+        }
         PlayingSummary = (DeckA.IsPlaying, DeckB.IsPlaying) switch
         {
             (true, true) => $"{DeckA.NowPlaying} → {DeckB.NowPlaying}",
@@ -254,10 +261,11 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
             CueDevices.Clear();
             foreach (string name in _engine.CueDeviceNames())
                 CueDevices.Add(name);
-            // Only fill a blank choice. A remembered device that has gone missing is
-            // kept so applying it fails loudly, rather than silently choosing another
-            // output that might be the room speakers.
-            CueDevice = previous ?? CueDevices.FirstOrDefault();
+            // Put the choice back and never fill a blank one: the first listed
+            // output could be anything, and a wrong guess puts the cue on the room
+            // speakers. A remembered device that has gone missing is kept so
+            // applying it fails loudly instead.
+            CueDevice = previous;
         }
         finally { _applyingCue = false; }
     }
@@ -268,13 +276,20 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
         _applyingCue = true;
         try
         {
-            if (!_engine.TrySetCue(CueMode, CueDevice, out string? error))
+            if (CueMode == CueMode.Device && CueDevice is null)
+            {
+                // Device is selected so the list shows, but nothing routes until the
+                // DJ picks an output.
+                _engine.TrySetCue(CueMode.Off, null, out _);
+                StatusMessage = "Headphones: choose the output your headphones are plugged into";
+            }
+            else if (!_engine.TrySetCue(CueMode, CueDevice, out string? error))
             {
                 StatusMessage = $"Headphone cue is off: {error}";
                 CueMode = CueMode.Off;
                 _engine.TrySetCue(CueMode.Off, null, out _);
             }
-            DeckA.IsCueAvailable = DeckB.IsCueAvailable = CueMode != CueMode.Off;
+            DeckA.IsCueAvailable = DeckB.IsCueAvailable = _engine.CueMode != CueMode.Off;
         }
         finally { _applyingCue = false; }
     }

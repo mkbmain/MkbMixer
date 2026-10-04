@@ -80,12 +80,17 @@ internal sealed class CueFeedModifier(CueBus bus, CueRingBuffer ring, Func<float
 }
 
 /// <summary>Device mode, on the cue device's mixer: plays what the feed wrote.</summary>
-internal sealed class CueSource(AudioEngine engine, AudioFormat format, CueRingBuffer ring)
+internal sealed class CueSource(
+    AudioEngine engine, AudioFormat format, CueRingBuffer ring, CueWatchdog watchdog)
     : SoundComponent(engine, format)
 {
     public override string Name { get; set; } = "Cue";
 
-    protected override void GenerateAudio(Span<float> buffer, int channels) => ring.Read(buffer);
+    protected override void GenerateAudio(Span<float> buffer, int channels)
+    {
+        watchdog.Stamp(Environment.TickCount64);   // a device that stops asking has gone
+        ring.Read(buffer);
+    }
 }
 
 internal static class CueScratch

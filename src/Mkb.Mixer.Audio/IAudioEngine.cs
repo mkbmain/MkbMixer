@@ -28,6 +28,13 @@ public interface IAudioEngine : IDisposable
     /// <summary>The cue device's name in <see cref="Audio.CueMode.Device"/> mode, otherwise null.</summary>
     string? CueDevice { get; }
 
+    /// <summary>
+    /// Why the cue device looks gone (unplugged, say) while in Device mode, else
+    /// null. The caller should switch the cue off so the stream cannot be moved to
+    /// the room speakers.
+    /// </summary>
+    string? CueFault { get; }
+
     /// <summary>What the headphones hear: 0 is cued decks only, 1 is the room mix only.</summary>
     float CueMix { get; set; }
 

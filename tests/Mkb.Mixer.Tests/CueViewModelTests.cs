@@ -36,7 +36,7 @@ public class CueViewModelTests
     }
 
     [Fact]
-    public void ChoosingDeviceListsDevicesAndPicksTheFirst()
+    public void ChoosingDeviceListsDevicesButNeverPicksOne()
     {
         var engine = new FakeAudioEngine();
         var vm = Vm(engine);
@@ -44,9 +44,19 @@ public class CueViewModelTests
         vm.CueMode = CueMode.Device;
 
         Assert.Equal(new[] { "Fake headphones", "Fake USB" }, vm.CueDevices);
+        Assert.Equal(CueMode.Device, vm.CueMode);
         Assert.True(vm.IsCueDeviceMode);
-        Assert.Equal("Fake headphones", vm.CueDevice);
-        Assert.Equal("Fake headphones", engine.CueDevice);
+        Assert.Null(vm.CueDevice);
+        Assert.Equal(CueMode.Off, engine.CueMode);
+        Assert.False(vm.DeckA.IsCueAvailable);
+        Assert.False(vm.DeckB.IsCueAvailable);
+        Assert.Equal("Headphones: choose the output your headphones are plugged into", vm.StatusMessage);
+
+        vm.CueDevice = "Fake USB";
+
+        Assert.Equal(CueMode.Device, engine.CueMode);
+        Assert.Equal("Fake USB", engine.CueDevice);
+        Assert.True(vm.DeckA.IsCueAvailable);
     }
 
     [Fact]
@@ -55,10 +65,62 @@ public class CueViewModelTests
         var engine = new FakeAudioEngine();
         var vm = Vm(engine);
         vm.CueMode = CueMode.Device;
+        vm.CueDevice = "Fake headphones";
 
         vm.CueDevice = "Fake USB";
 
         Assert.Equal("Fake USB", engine.CueDevice);
+    }
+
+    [Fact]
+    public void AFailureInDeviceModeDropsToOffWithTheReason()
+    {
+        var engine = new FakeAudioEngine();
+        var vm = Vm(engine);
+        vm.CueMode = CueMode.Device;
+        vm.CueDevice = "Fake USB";
+
+        engine.CueFailure = "device busy";
+        vm.CueDevice = "Fake headphones";
+
+        Assert.Equal(CueMode.Off, vm.CueMode);
+        Assert.Equal(CueMode.Off, engine.CueMode);
+        Assert.False(vm.DeckA.IsCueAvailable);
+        Assert.Contains("device busy", vm.StatusMessage);
+    }
+
+    [Fact]
+    public void ASilentCueDeviceSwitchesTheCueOff()
+    {
+        var engine = new FakeAudioEngine();
+        var vm = Vm(engine);
+        vm.CueMode = CueMode.Device;
+        vm.CueDevice = "Fake USB";
+
+        engine.CueFault = "cue device \"Fake USB\" stopped responding";
+        vm.Tick(TimeSpan.Zero);
+
+        Assert.Equal(CueMode.Off, vm.CueMode);
+        Assert.Equal(CueMode.Off, engine.CueMode);
+        Assert.False(vm.DeckA.IsCueAvailable);
+        Assert.Equal("Headphone cue is off: cue device \"Fake USB\" stopped responding", vm.StatusMessage);
+    }
+
+    [Fact]
+    public void DeviceModeWithNoDeviceIsSavedAndRestoredAsChooseAnOutput()
+    {
+        string path = NewSettingsPath();
+        var vm = Vm(new FakeAudioEngine(), path);
+        vm.CueMode = CueMode.Device;
+        vm.SaveState();
+
+        var engine = new FakeAudioEngine();
+        var reloaded = Vm(engine, path);
+
+        Assert.Equal(CueMode.Device, reloaded.CueMode);
+        Assert.Null(reloaded.CueDevice);
+        Assert.Equal(CueMode.Off, engine.CueMode);
+        Assert.Contains("choose the output", reloaded.StatusMessage);
     }
 
     [Fact]

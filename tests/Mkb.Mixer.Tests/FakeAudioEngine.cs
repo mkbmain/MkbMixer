@@ -20,6 +20,7 @@ public sealed class FakeAudioEngine : IAudioEngine
     public CueMode CueMode { get; private set; }
     public string? CueDevice { get; private set; }
     public float CueMix { get; set; }
+    public string? CueFault { get; set; }
     public List<string> CueDeviceList { get; } = ["Fake headphones", "Fake USB"];
 
     /// <summary>When set, every mode except Off fails with this message.</summary>
