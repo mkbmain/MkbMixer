@@ -80,6 +80,12 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
         foreach (string line in engine.Diagnostics)
             Console.WriteLine($"[audio] {line}");
 
+        // Restore the headphone cue last, so if it cannot be re-applied (USB
+        // headphones unplugged since last time) its message is the one shown.
+        _cueMix = _settings.CueMix;
+        engine.CueMix = _cueMix;
+        _cueDevice = _settings.CueDevice;
+        CueMode = _settings.CueMode;
     }
 
     /// <summary>
@@ -182,6 +188,22 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
     [ObservableProperty] private bool _autoCueEnabled;
     [ObservableProperty] private int _crossfadeSeconds;
 
+    public System.Collections.Generic.IReadOnlyList<CueMode> CueModes { get; } =
+        [CueMode.Off, CueMode.Split, CueMode.Device];
+
+    /// <summary>Outputs the headphones can be on, in Device mode.</summary>
+    public ObservableCollection<string> CueDevices { get; } = [];
+
+    [ObservableProperty] private CueMode _cueMode;
+    [ObservableProperty] private string? _cueDevice;
+
+    /// <summary>What the headphones hear: 0 is cued decks only, 1 is the room mix only.</summary>
+    [ObservableProperty] private float _cueMix;
+
+    public bool IsCueDeviceMode => CueMode == CueMode.Device;
+
+    private bool _applyingCue;
+
     /// <summary>
     /// True while either deck is audible. Android keeps a foreground service running
     /// off this, so the mix carries on with the screen off.
@@ -208,6 +230,53 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
 
     partial void OnCrossfadeSecondsChanged(int value) =>
         _autoCue.CrossfadeDuration = TimeSpan.FromSeconds(Math.Max(1, value));
+
+    partial void OnCueModeChanged(CueMode value)
+    {
+        OnPropertyChanged(nameof(IsCueDeviceMode));
+        if (value == CueMode.Device) RefreshCueDevices();
+        ApplyCue();
+    }
+
+    partial void OnCueDeviceChanged(string? value)
+    {
+        if (CueMode == CueMode.Device) ApplyCue();
+    }
+
+    partial void OnCueMixChanged(float value) => _engine.CueMix = value;
+
+    private void RefreshCueDevices()
+    {
+        _applyingCue = true;   // filling the list must not reroute once per item
+        try
+        {
+            CueDevices.Clear();
+            foreach (string name in _engine.CueDeviceNames())
+                CueDevices.Add(name);
+            // Only fill a blank choice. A remembered device that has gone missing is
+            // kept so applying it fails loudly, rather than silently choosing another
+            // output that might be the room speakers.
+            CueDevice ??= CueDevices.FirstOrDefault();
+        }
+        finally { _applyingCue = false; }
+    }
+
+    private void ApplyCue()
+    {
+        if (_applyingCue) return;
+        _applyingCue = true;
+        try
+        {
+            if (!_engine.TrySetCue(CueMode, CueDevice, out string? error))
+            {
+                StatusMessage = $"Headphone cue is off: {error}";
+                CueMode = CueMode.Off;
+                _engine.TrySetCue(CueMode.Off, null, out _);
+            }
+            DeckA.IsCueAvailable = DeckB.IsCueAvailable = CueMode != CueMode.Off;
+        }
+        finally { _applyingCue = false; }
+    }
 
     partial void OnSelectedFolderChanged(FolderNode? value)
     {
@@ -450,6 +519,9 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
         _settings.DeckARepeat = DeckA.Repeat;
         _settings.DeckBShuffle = DeckB.Shuffle;
         _settings.DeckBRepeat = DeckB.Repeat;
+        _settings.CueMode = CueMode;
+        _settings.CueDevice = CueDevice;
+        _settings.CueMix = CueMix;
         _settingsStore.Save(_settings);
         SavePlaylists();
     }

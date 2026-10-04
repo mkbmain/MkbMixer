@@ -52,6 +52,12 @@ public sealed partial class DeckViewModel : ViewModelBase
     /// <summary>Put each played track back on the end of the queue, so it never runs dry.</summary>
     [ObservableProperty] private bool _repeat;
 
+    /// <summary>Whether this deck is sent to the headphones.</summary>
+    [ObservableProperty] private bool _isCued;
+
+    /// <summary>False while the headphone mode is Off, which greys the deck's CUE button.</summary>
+    [ObservableProperty] private bool _isCueAvailable;
+
     public string MuteLabel => IsMuted ? "■ MUTE" : "■ LIVE";
 
     partial void OnIsMutedChanged(bool value)
@@ -61,6 +67,8 @@ public sealed partial class DeckViewModel : ViewModelBase
     }
 
     partial void OnTempoChanged(double value) => _deck.Tempo = (float)value;
+
+    partial void OnIsCuedChanged(bool value) => _deck.IsCued = value;
 
     /// <summary>Loads a track and kicks off waveform analysis in the background.</summary>
     public async Task LoadAsync(Track track)
