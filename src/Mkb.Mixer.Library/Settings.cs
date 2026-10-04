@@ -11,6 +11,10 @@ public sealed class AppSettings
     public float CrossfaderPosition { get; set; } = 0.5f;
     public double WindowWidth { get; set; } = 1280;
     public double WindowHeight { get; set; } = 800;
+    public bool DeckAShuffle { get; set; }
+    public bool DeckARepeat { get; set; }
+    public bool DeckBShuffle { get; set; }
+    public bool DeckBRepeat { get; set; }
 }
 
 /// <summary>Persists <see cref="AppSettings"/> as JSON, defaulting rather than throwing.</summary>

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.ObjectModel;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Threading;
@@ -14,12 +15,16 @@ public sealed partial class DeckViewModel : ViewModelBase
 {
     private readonly IDeck _deck;
     private readonly IAudioEngine _engine;
+    private readonly Random _random;
     private CancellationTokenSource? _analysis;
+    private Track? _lastDequeued;
 
-    public DeckViewModel(IDeck deck, IAudioEngine engine)
+    /// <param name="random">Injectable so tests can make shuffle deterministic.</param>
+    public DeckViewModel(IDeck deck, IAudioEngine engine, Random? random = null)
     {
         _deck = deck;
         _engine = engine;
+        _random = random ?? Random.Shared;
         // SoundFlow raises this from its audio callback thread, so it has to be
         // marshalled before it touches anything bound to the UI.
         _deck.TrackEnded += (_, _) => Dispatcher.UIThread.Post(PlayNextFromPlaylist);
@@ -40,6 +45,10 @@ public sealed partial class DeckViewModel : ViewModelBase
     [ObservableProperty] private bool _isMuted;
     [ObservableProperty] private Waveform _waveform = Waveform.Empty;
     [ObservableProperty] private double _tempo = 1.0;
+    /// <summary>Take a random queued track rather than the top one.</summary>
+    [ObservableProperty] private bool _shuffle;
+    /// <summary>Put each played track back on the end of the queue, so it never runs dry.</summary>
+    [ObservableProperty] private bool _repeat;
 
     public string MuteLabel => IsMuted ? "■ MUTE" : "■ LIVE";
 
@@ -136,12 +145,31 @@ public sealed partial class DeckViewModel : ViewModelBase
         SelectedPlaylistItem = t;
     }
 
-    /// <summary>Pops the next queued track. The auto-cue uses this too.</summary>
+    /// <summary>
+    /// Pops the next queued track, honouring shuffle and repeat. The auto-cue and
+    /// "play the next track when this one ends" both come through here.
+    /// </summary>
     public Track? DequeueNext()
     {
         if (Playlist.Count == 0) return null;
-        Track next = Playlist[0];
-        Playlist.RemoveAt(0);
+
+        int index = 0;
+        if (Shuffle && Playlist.Count > 1)
+        {
+            // Never the track just played, which repeat has put back on the end.
+            // Compared by reference: the same library track can be queued twice.
+            int[] candidates = Enumerable.Range(0, Playlist.Count)
+                .Where(i => !ReferenceEquals(Playlist[i], _lastDequeued))
+                .ToArray();
+            if (candidates.Length == 0)
+                candidates = Enumerable.Range(0, Playlist.Count).ToArray();
+            index = candidates[_random.Next(candidates.Length)];
+        }
+
+        Track next = Playlist[index];
+        Playlist.RemoveAt(index);
+        if (Repeat) Playlist.Add(next);
+        _lastDequeued = next;
         return next;
     }
 

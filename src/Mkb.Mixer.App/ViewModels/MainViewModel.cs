@@ -37,6 +37,11 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
         DeckA.PlaybackRefused += (_, why) => StatusMessage = why;
         DeckB.PlaybackRefused += (_, why) => StatusMessage = why;
 
+        DeckA.Shuffle = _settings.DeckAShuffle;
+        DeckA.Repeat = _settings.DeckARepeat;
+        DeckB.Shuffle = _settings.DeckBShuffle;
+        DeckB.Repeat = _settings.DeckBRepeat;
+
         _autoCue = new AutoCue(engine.DeckA, engine.DeckB, DequeueFor)
         {
             Enabled = _settings.AutoCueEnabled,
@@ -393,6 +398,10 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
         _settings.CrossfadeSeconds = CrossfadeSeconds;
         _settings.AutoCueEnabled = AutoCueEnabled;
         _settings.CrossfaderPosition = CrossfaderPosition;
+        _settings.DeckAShuffle = DeckA.Shuffle;
+        _settings.DeckARepeat = DeckA.Repeat;
+        _settings.DeckBShuffle = DeckB.Shuffle;
+        _settings.DeckBRepeat = DeckB.Repeat;
         _settingsStore.Save(_settings);
         SavePlaylists();
     }
