@@ -16,7 +16,7 @@
 
     <!-- Mixer: crossfader plus auto-cue -->
     <Border Grid.Row="1" Classes="panel" Margin="0,10,0,0">
-      <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto,Auto">
+      <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto,Auto">
         <TextBlock Classes="heading" Text="A" VerticalAlignment="Center" />
         <Slider Grid.Column="1" Minimum="0" Maximum="1" Margin="12,0"
                 Value="{Binding CrossfaderPosition}"
@@ -36,6 +36,21 @@
 
         <TextBlock Grid.Column="6" Classes="time" Margin="20,0,0,0"
                    Text="{Binding ClockText}" VerticalAlignment="Center" />
+
+        <!-- Headphone cue -->
+        <StackPanel Grid.Row="1" Grid.ColumnSpan="7" Orientation="Horizontal"
+                    Spacing="8" Margin="0,8,0,0">
+          <TextBlock Classes="dim" Text="headphones" VerticalAlignment="Center" />
+          <ComboBox ItemsSource="{Binding CueModes}" SelectedItem="{Binding CueMode}" MinWidth="110"
+                    ToolTip.Tip="Off: normal stereo. Split: room mix on the left, headphones on the right, for a splitter cable. Device: headphones on a second output." />
+          <ComboBox ItemsSource="{Binding CueDevices}" SelectedItem="{Binding CueDevice}" MinWidth="220"
+                    IsVisible="{Binding IsCueDeviceMode}"
+                    ToolTip.Tip="The output your headphones are plugged into" />
+          <TextBlock Classes="dim" Text="cue" VerticalAlignment="Center" Margin="16,0,0,0" />
+          <Slider Minimum="0" Maximum="1" Width="160" Value="{Binding CueMix}"
+                  ToolTip.Tip="What the headphones hear: cued decks to the left, the room mix to the right" />
+          <TextBlock Classes="dim" Text="master" VerticalAlignment="Center" />
+        </StackPanel>
       </Grid>
     </Border>
 

@@ -250,13 +250,14 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
         _applyingCue = true;   // filling the list must not reroute once per item
         try
         {
+            string? previous = CueDevice;   // clearing a bound ComboBox pushes null back
             CueDevices.Clear();
             foreach (string name in _engine.CueDeviceNames())
                 CueDevices.Add(name);
             // Only fill a blank choice. A remembered device that has gone missing is
             // kept so applying it fails loudly, rather than silently choosing another
             // output that might be the room speakers.
-            CueDevice ??= CueDevices.FirstOrDefault();
+            CueDevice = previous ?? CueDevices.FirstOrDefault();
         }
         finally { _applyingCue = false; }
     }
