@@ -81,6 +81,7 @@ public sealed class PlaybackService : Service
                 _pendingStop?.Dispose();
                 _pendingStop = null;
                 _held = false;
+                _pausedForCall = false;   // starting playback is the user's own resume decision
                 _text = vm.PlayingSummary;
                 // A running service is updated in place; asking to start it again
                 // from the background could be refused on Android 12+.
@@ -120,6 +121,7 @@ public sealed class PlaybackService : Service
     {
         _pendingStop = null;
         _held = false;
+        _pausedForCall = false;   // the call's focus Gain may never reach a stopped service
         if (!_running) return;
         _running = false;
         Context context = global::Android.App.Application.Context;
@@ -130,6 +132,18 @@ public sealed class PlaybackService : Service
     private static void PauseFromSystem()
     {
         if (_watched?.PauseAll() == true) _held = true;
+    }
+
+    /// <summary>
+    /// A notification action recreates a stopped service, and one that changes
+    /// nothing never flips <c>IsAnyDeckPlaying</c>, so no stop would be scheduled
+    /// and the service would stay foreground holding the wake lock.
+    /// </summary>
+    private static void HoldIfSilent()
+    {
+        if (IsPlaying) return;
+        _held = true;
+        _pendingStop ??= DispatcherTimer.RunOnce(Stop, HeldStopDelay);
     }
 
     private static void ResumeFromSystem()
@@ -188,9 +202,11 @@ public sealed class PlaybackService : Service
         {
             case ActionPause:
                 Dispatcher.UIThread.Post(PauseFromSystem);
+                Dispatcher.UIThread.Post(HoldIfSilent);
                 break;
             case ActionPlay:
                 Dispatcher.UIThread.Post(ResumeFromSystem);
+                Dispatcher.UIThread.Post(HoldIfSilent);
                 break;
             default:
                 RequestFocus();
@@ -206,6 +222,7 @@ public sealed class PlaybackService : Service
     public override void OnDestroy()
     {
         _running = false;
+        _pausedForCall = false;
         _instance = null;
         UnregisterReceiver(_noisy);
         if (_focusRequest is not null && GetSystemService(AudioService) is AudioManager audio)
@@ -248,6 +265,8 @@ public sealed class PlaybackService : Service
             .SetWillPauseWhenDucked(true)!
             .SetOnAudioFocusChangeListener(new FocusListener())!
             .Build();
+        // The result is ignored on purpose: a refused request (mid-call, say) must
+        // not stop the mix, because the DJ pressed play.
         audio.RequestAudioFocus(_focusRequest!);
     }
 
