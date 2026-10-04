@@ -1,5 +1,6 @@
 using Android;
 using Android.App;
+using Android.Content;
 using Android.Content.PM;
 using System;
 using Android.OS;
@@ -36,13 +37,45 @@ public class MainActivity : AvaloniaMainActivity
         // Decided before base.OnCreate, which is where Avalonia builds the view.
         bool phone = Resources?.Configuration?.SmallestScreenWidthDp < TabletSmallestWidthDp;
         App.UsePhoneLayout = phone;
+        App.PlatformRoots = () => StorageVolumes.List(ApplicationContext!);
         RequestedOrientation = phone ? ScreenOrientation.SensorPortrait : ScreenOrientation.SensorLandscape;
 
         base.OnCreate(savedInstanceState);
 
-        // Without this the library browser can list folders but no audio files.
-        if (CheckSelfPermission(StoragePermission) != Permission.Granted)
-            RequestPermissions([StoragePermission], StorageRequest);
+        // An SD card or USB drive going in or out changes the browser's roots.
+        var volumes = new IntentFilter();
+        volumes.AddAction(Intent.ActionMediaMounted);
+        volumes.AddAction(Intent.ActionMediaUnmounted);
+        volumes.AddAction(Intent.ActionMediaRemoved);
+        volumes.AddAction(Intent.ActionMediaEject);
+        volumes.AddDataScheme("file");
+        if (OperatingSystem.IsAndroidVersionAtLeast(33))
+            RegisterReceiver(_volumeChanged, volumes, ReceiverFlags.NotExported);
+        else
+            RegisterReceiver(_volumeChanged, volumes);
+
+        RequestMissingPermissions();
+    }
+
+    private readonly VolumeChangedReceiver _volumeChanged = new();
+
+    protected override void OnDestroy()
+    {
+        UnregisterReceiver(_volumeChanged);
+        base.OnDestroy();
+    }
+
+    private void RequestMissingPermissions()
+    {
+        // Storage: without it the library browser lists folders but no audio files.
+        // Notifications (13+): without it the playback service still keeps the mix
+        // going with the screen off, but its notification is hidden.
+        string[] wanted = OperatingSystem.IsAndroidVersionAtLeast(33)
+            ? [StoragePermission, Manifest.Permission.PostNotifications]
+            : [StoragePermission];
+        string[] missing = Array.FindAll(wanted, p => CheckSelfPermission(p) != Permission.Granted);
+        if (missing.Length > 0)
+            RequestPermissions(missing, StorageRequest);
     }
 
     public override void OnRequestPermissionsResult(
@@ -52,8 +85,17 @@ public class MainActivity : AvaloniaMainActivity
         if (requestCode != StorageRequest) return;
 
         // The tree was built before access was granted, so it is missing files.
-        if (grantResults is [Permission.Granted, ..])
+        int storage = Array.IndexOf(permissions, StoragePermission);
+        if (storage >= 0 && grantResults[storage] == Permission.Granted)
             Dispatcher.UIThread.Post(() => CurrentViewModel()?.LoadRoots());
+    }
+
+    protected override void OnResume()
+    {
+        base.OnResume();
+        // By now Avalonia has built the view, and so the view model, for certain.
+        if (CurrentViewModel() is { } vm)
+            PlaybackService.Watch(vm);
     }
 
     protected override void OnPause()
@@ -66,4 +108,10 @@ public class MainActivity : AvaloniaMainActivity
 
     private static ViewModels.MainViewModel? CurrentViewModel() =>
         (Avalonia.Application.Current as App)?.ViewModel;
+
+    private sealed class VolumeChangedReceiver : BroadcastReceiver
+    {
+        public override void OnReceive(Context? context, Intent? intent) =>
+            Dispatcher.UIThread.Post(() => CurrentViewModel()?.LoadRoots());
+    }
 }

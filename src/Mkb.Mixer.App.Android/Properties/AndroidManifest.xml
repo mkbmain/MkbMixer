@@ -4,5 +4,12 @@
 	<uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
 	<!-- Android 12 and older only have the broad storage permission. -->
 	<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
-	<application android:label="MKB Mixer" android:icon="@drawable/Icon" />
+	<!-- The playback service: keeps the mix going with the screen off. -->
+	<uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+	<uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+	<uses-permission android:name="android.permission.WAKE_LOCK" />
+	<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+	<!-- Android 10 alone has scoped storage without path access to media files;
+	     this opts out there. Ignored from Android 11, where path access returns. -->
+	<application android:label="MKB Mixer" android:icon="@drawable/Icon" android:requestLegacyExternalStorage="true" />
 </manifest>
