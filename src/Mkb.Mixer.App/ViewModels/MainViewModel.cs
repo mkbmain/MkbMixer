@@ -23,6 +23,7 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
     private readonly Stopwatch _clock = Stopwatch.StartNew();
     private CancellationTokenSource? _scan;
     private bool _suppressFaderFeedback;
+    private readonly System.Collections.Generic.List<DeckViewModel> _pausedByPauseAll = [];
 
     public MainViewModel() : this(new SoundFlowAudioEngine(), SettingsStore.Default()) { }
 
@@ -36,6 +37,11 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
         DeckB = new DeckViewModel(engine.DeckB, engine);
         DeckA.PlaybackRefused += (_, why) => StatusMessage = why;
         DeckB.PlaybackRefused += (_, why) => StatusMessage = why;
+
+        DeckA.Shuffle = _settings.DeckAShuffle;
+        DeckA.Repeat = _settings.DeckARepeat;
+        DeckB.Shuffle = _settings.DeckBShuffle;
+        DeckB.Repeat = _settings.DeckBRepeat;
 
         _autoCue = new AutoCue(engine.DeckA, engine.DeckB, DequeueFor)
         {
@@ -74,6 +80,12 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
         foreach (string line in engine.Diagnostics)
             Console.WriteLine($"[audio] {line}");
 
+        // Restore the headphone cue last, so if it cannot be re-applied (USB
+        // headphones unplugged since last time) its message is the one shown.
+        _cueMix = _settings.CueMix;
+        engine.CueMix = _cueMix;
+        _cueDevice = _settings.CueDevice;
+        CueMode = _settings.CueMode;
     }
 
     /// <summary>
@@ -97,6 +109,13 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
         DeckB.Refresh();
         ClockText = DateTime.Now.ToLongTimeString();
         _autoCue.Tick(now);
+        if (CueMode == CueMode.Device && _engine.CueFault is { } fault)
+        {
+            // Switching off tears the device down, so its stream cannot be moved to
+            // the room speakers by the backend.
+            CueMode = CueMode.Off;
+            StatusMessage = $"Headphone cue is off: {fault}";
+        }
         PlayingSummary = (DeckA.IsPlaying, DeckB.IsPlaying) switch
         {
             (true, true) => $"{DeckA.NowPlaying} → {DeckB.NowPlaying}",
@@ -106,6 +125,53 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
         };
         // After the summary, so whoever reacts to this sees the matching text.
         IsAnyDeckPlaying = DeckA.IsPlaying || DeckB.IsPlaying;
+    }
+
+    /// <summary>
+    /// Pauses every playing deck and remembers which, for the platform's media
+    /// controls and audio focus. A call with nothing playing leaves the memory of
+    /// the previous pause intact, so a phone call arriving after a lock-screen pause
+    /// cannot make the later resume forget what to restart.
+    /// </summary>
+    /// <returns>True when something was paused.</returns>
+    public bool PauseAll()
+    {
+        DeckViewModel[] playing = new[] { DeckA, DeckB }
+            .Where(d => d.State == PlaybackState.Playing)
+            .ToArray();
+        if (playing.Length == 0) return false;
+
+        _pausedByPauseAll.Clear();
+        foreach (DeckViewModel deck in playing)
+        {
+            deck.PauseCommand.Execute(null);
+            _pausedByPauseAll.Add(deck);
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// Resumes what <see cref="PauseAll"/> paused. With nothing remembered and
+    /// nothing playing, it presses play on the deck in front on the crossfader.
+    /// </summary>
+    public void ResumePaused()
+    {
+        DeckViewModel[] toResume = _pausedByPauseAll
+            .Where(d => d.State == PlaybackState.Paused)
+            .ToArray();
+        _pausedByPauseAll.Clear();
+
+        if (toResume.Length > 0)
+        {
+            foreach (DeckViewModel deck in toResume)
+                deck.PlayCommand.Execute(null);
+            return;
+        }
+
+        if (DeckA.State == PlaybackState.Playing || DeckB.State == PlaybackState.Playing)
+            return;
+
+        (CrossfaderPosition <= Crossfader.Centre ? DeckA : DeckB).PlayCommand.Execute(null);
     }
 
     public DeckViewModel DeckA { get; }
@@ -128,6 +194,22 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
     [ObservableProperty] private float _crossfaderPosition;
     [ObservableProperty] private bool _autoCueEnabled;
     [ObservableProperty] private int _crossfadeSeconds;
+
+    public System.Collections.Generic.IReadOnlyList<CueMode> CueModes { get; } =
+        [CueMode.Off, CueMode.Split, CueMode.Device];
+
+    /// <summary>Outputs the headphones can be on, in Device mode.</summary>
+    public ObservableCollection<string> CueDevices { get; } = [];
+
+    [ObservableProperty] private CueMode _cueMode;
+    [ObservableProperty] private string? _cueDevice;
+
+    /// <summary>What the headphones hear: 0 is cued decks only, 1 is the room mix only.</summary>
+    [ObservableProperty] private float _cueMix;
+
+    public bool IsCueDeviceMode => CueMode == CueMode.Device;
+
+    private bool _applyingCue;
 
     /// <summary>
     /// True while either deck is audible. Android keeps a foreground service running
@@ -155,6 +237,62 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
 
     partial void OnCrossfadeSecondsChanged(int value) =>
         _autoCue.CrossfadeDuration = TimeSpan.FromSeconds(Math.Max(1, value));
+
+    partial void OnCueModeChanged(CueMode value)
+    {
+        OnPropertyChanged(nameof(IsCueDeviceMode));
+        if (value == CueMode.Device) RefreshCueDevices();
+        ApplyCue();
+    }
+
+    partial void OnCueDeviceChanged(string? value)
+    {
+        if (CueMode == CueMode.Device) ApplyCue();
+    }
+
+    partial void OnCueMixChanged(float value) => _engine.CueMix = value;
+
+    private void RefreshCueDevices()
+    {
+        _applyingCue = true;   // filling the list must not reroute once per item
+        try
+        {
+            string? previous = CueDevice;   // clearing a bound ComboBox pushes null back
+            CueDevices.Clear();
+            foreach (string name in _engine.CueDeviceNames())
+                CueDevices.Add(name);
+            // Put the choice back and never fill a blank one: the first listed
+            // output could be anything, and a wrong guess puts the cue on the room
+            // speakers. A remembered device that has gone missing is kept so
+            // applying it fails loudly instead.
+            CueDevice = previous;
+        }
+        finally { _applyingCue = false; }
+    }
+
+    private void ApplyCue()
+    {
+        if (_applyingCue) return;
+        _applyingCue = true;
+        try
+        {
+            if (CueMode == CueMode.Device && CueDevice is null)
+            {
+                // Device is selected so the list shows, but nothing routes until the
+                // DJ picks an output.
+                _engine.TrySetCue(CueMode.Off, null, out _);
+                StatusMessage = "Headphones: choose the output your headphones are plugged into";
+            }
+            else if (!_engine.TrySetCue(CueMode, CueDevice, out string? error))
+            {
+                StatusMessage = $"Headphone cue is off: {error}";
+                CueMode = CueMode.Off;
+                _engine.TrySetCue(CueMode.Off, null, out _);
+            }
+            DeckA.IsCueAvailable = DeckB.IsCueAvailable = _engine.CueMode != CueMode.Off;
+        }
+        finally { _applyingCue = false; }
+    }
 
     partial void OnSelectedFolderChanged(FolderNode? value)
     {
@@ -393,6 +531,13 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
         _settings.CrossfadeSeconds = CrossfadeSeconds;
         _settings.AutoCueEnabled = AutoCueEnabled;
         _settings.CrossfaderPosition = CrossfaderPosition;
+        _settings.DeckAShuffle = DeckA.Shuffle;
+        _settings.DeckARepeat = DeckA.Repeat;
+        _settings.DeckBShuffle = DeckB.Shuffle;
+        _settings.DeckBRepeat = DeckB.Repeat;
+        _settings.CueMode = CueMode;
+        _settings.CueDevice = CueDevice;
+        _settings.CueMix = CueMix;
         _settingsStore.Save(_settings);
         SavePlaylists();
     }

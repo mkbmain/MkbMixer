@@ -61,6 +61,42 @@ While either deck is playing, a foreground service keeps the app alive with the
 screen off and shows a notification naming what is playing; tapping it returns to
 the app. The service stops after 10 seconds of silence.
 
+The notification, the lock screen and headset or Bluetooth buttons pause and
+resume the whole mix. The mix also pauses when another app starts playing music,
+during a phone call (resuming afterwards if the call is under 10 minutes), and
+when the output it is playing through disconnects — wired headphones unplugged,
+or a Bluetooth speaker going out of range. A text arriving, a voice note, or a
+Bluetooth device that is not the audio output (a watch, say) disconnecting does
+not interrupt it. After one of those pauses the play button keeps working for 10
+minutes.
+
+## Headphone cue
+
+Each deck has a **CUE** button that sends it to the headphones before the
+crossfader, so the next track can be lined up without the room hearing it. Pick a
+mode in the *headphones* row under the crossfader:
+
+| Mode | Use it when |
+|---|---|
+| **Off** | No headphones. Normal stereo output. |
+| **Split** | One output and a splitter cable — the usual phone setup. The room mix plays in mono on the left channel and the headphones in mono on the right. |
+| **Device** | A second output, such as USB headphones or a second sound card. The room mix stays stereo on the main output. |
+
+In Device mode, pick the output your headphones are on from the list. The output
+the room mix is playing on is not offered, and if the headphone output disappears
+mid-set the cue switches itself off.
+
+The *cue — master* slider sets what the headphones hear, from the cued decks alone
+to the room mix alone. Most phones can only play through one output at a time, so
+Device mode there is best-effort; use Split.
+
+## Shuffle and repeat
+
+**⇄** makes a deck take a random track from its queue, and **↻** puts each played
+track back on the end of the queue so it never runs dry. Both are per deck and
+apply to the auto-cue as well as to a track simply ending. With both on, the same
+song is never picked twice in a row.
+
 ## If playback is silent
 
 The status bar's bottom-right corner always shows the audio route in use, for
@@ -163,6 +199,9 @@ audio library is swappable and the logic is testable without an audio device.
 - Playlists saved as M3U, and settings persisted between runs.
 - Tempo control that preserves pitch (WSOLA) rather than resampling.
 - FLAC, OGG, M4A, AAC and Opus support.
+- Headphone cue, in Split (one output and a splitter) or second-device mode.
+- Per-deck shuffle and repeat.
+- Android media controls, and pausing for calls, other music apps and lost outputs.
 
 ## Known limitations
 

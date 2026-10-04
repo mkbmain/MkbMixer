@@ -28,7 +28,7 @@
             <views:DeckView DataContext="{Binding DeckA}" />
 
             <Border Classes="panel">
-              <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="Auto,*,Auto">
+              <Grid RowDefinitions="Auto,Auto,Auto" ColumnDefinitions="Auto,*,Auto">
                 <TextBlock Classes="heading" Text="A" VerticalAlignment="Center" />
                 <Slider Grid.Column="1" Minimum="0" Maximum="1" Margin="12,0"
                         Value="{Binding CrossfaderPosition}" />
@@ -42,6 +42,22 @@
                                  FormatString="0" ParsingNumberStyle="Integer"
                                  Value="{Binding CrossfadeSeconds}" />
                 </StackPanel>
+
+                <!-- Headphone cue. Split is the mode phones can actually use. -->
+                <WrapPanel Grid.Row="2" Grid.ColumnSpan="3" HorizontalAlignment="Center"
+                           Margin="0,6,0,0">
+                  <TextBlock Classes="dim" Text="headphones" VerticalAlignment="Center" Margin="0,0,8,0" />
+                  <ComboBox ItemsSource="{Binding CueModes}" SelectedItem="{Binding CueMode}"
+                            MinWidth="100" Margin="0,0,8,4" />
+                  <ComboBox ItemsSource="{Binding CueDevices}" SelectedItem="{Binding CueDevice}"
+                            MinWidth="160" Margin="0,0,8,4" IsVisible="{Binding IsCueDeviceMode}" />
+                  <!-- One unit, so the label never wraps away from its slider. -->
+                  <StackPanel Orientation="Horizontal">
+                    <TextBlock Classes="dim" Text="cue" VerticalAlignment="Center" Margin="0,0,4,0" />
+                    <Slider Minimum="0" Maximum="1" Width="120" Value="{Binding CueMix}" />
+                    <TextBlock Classes="dim" Text="master" VerticalAlignment="Center" Margin="4,0,0,0" />
+                  </StackPanel>
+                </WrapPanel>
               </Grid>
             </Border>
 

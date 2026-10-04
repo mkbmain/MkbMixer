@@ -20,6 +20,12 @@ public interface IDeck : IDisposable
     bool IsMuted { get; set; }
 
     /// <summary>
+    /// Sends this deck to the headphones, taken before the crossfader and mute so
+    /// a deck can be pre-listened while the room cannot hear it.
+    /// </summary>
+    bool IsCued { get; set; }
+
+    /// <summary>
     /// Playback rate, 0.5..1.5 where 1.0 is normal speed. Pitch is always preserved:
     /// the engine time-stretches (WSOLA) rather than resampling, so speeding a track
     /// up does not raise its pitch the way the original's WMP rate control did.

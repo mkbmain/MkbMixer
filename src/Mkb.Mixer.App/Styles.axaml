@@ -61,6 +61,14 @@
     <Setter Property="MinWidth" Value="0" />
   </Style>
 
+  <Style Selector="ToggleButton.decktoggle">
+    <Setter Property="Padding" Value="8,2" />
+    <Setter Property="Margin" Value="4,0,0,0" />
+    <Setter Property="MinWidth" Value="32" />
+    <Setter Property="FontSize" Value="12" />
+    <Setter Property="HorizontalContentAlignment" Value="Center" />
+  </Style>
+
   <Style Selector="ctrl|WaveformView.deck">
     <Setter Property="Height" Value="72" />
   </Style>

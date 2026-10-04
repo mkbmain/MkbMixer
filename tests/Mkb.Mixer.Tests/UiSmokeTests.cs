@@ -1,4 +1,5 @@
 using Avalonia;
+using Avalonia.Controls.Primitives;
 using Avalonia.Threading;
 using Avalonia.Headless;
 using Avalonia.LogicalTree;
@@ -7,6 +8,7 @@ using Mkb.Mixer.App.ViewModels;
 using Mkb.Mixer.App.Views;
 using Mkb.Mixer.Audio;
 using Mkb.Mixer.Library;
+using Track = Mkb.Mixer.Audio.Track;
 
 namespace Mkb.Mixer.Tests;
 
@@ -32,6 +34,45 @@ public class UiSmokeTests
         window.Show();
         Assert.True(window.IsVisible);
         Assert.Equal("MKB Music Mixer", window.Title);
+    });
+
+    [Fact]
+    public void DecksShowShuffleRepeatAndCueToggles() => AvaloniaTest.Run(() =>
+    {
+        var (window, vm, _) = Build();
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        List<ToggleButton> toggles = window.GetLogicalDescendants().OfType<ToggleButton>().ToList();
+        List<ToggleButton> cues = toggles.Where(t => t.Content as string == "CUE").ToList();
+        Assert.Equal(2, cues.Count);
+        Assert.Equal(2, toggles.Count(t => t.Content as string == "⇄"));
+        Assert.Equal(2, toggles.Count(t => t.Content as string == "↻"));
+        Assert.All(cues, c => Assert.False(c.IsEffectivelyEnabled));
+
+        vm.CueMode = CueMode.Split;
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.All(cues, c => Assert.True(c.IsEffectivelyEnabled));
+    });
+
+    [Fact]
+    public void CueDeviceSurvivesSwitchingModesWithLiveComboBox() => AvaloniaTest.Run(() =>
+    {
+        var (window, vm, _) = Build();
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        vm.CueMode = CueMode.Device;
+        Dispatcher.UIThread.RunJobs();
+        vm.CueDevice = "Fake USB";
+        Dispatcher.UIThread.RunJobs();
+        vm.CueMode = CueMode.Split;
+        Dispatcher.UIThread.RunJobs();
+        vm.CueMode = CueMode.Device;
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal("Fake USB", vm.CueDevice);
     });
 
     [Fact]
@@ -69,6 +110,10 @@ public class UiSmokeTests
         vm.CrossfaderPosition = 0.35f;
         vm.AutoCueEnabled = true;
         vm.StatusMessage = "3 track(s) in Demo";
+        vm.CueMode = CueMode.Device;
+        vm.CueDevice = "Fake USB";
+        vm.DeckB.IsCued = true;
+        vm.DeckA.Shuffle = true;
 
         window.Show();
         Dispatcher.UIThread.RunJobs();
@@ -120,6 +165,8 @@ public class UiSmokeTests
         vm.DeckB.Playlist.Add(new Track("/m/4.mp3", "Windowlicker", "Aphex Twin", "Windowlicker", TimeSpan.FromSeconds(366)));
         vm.BrowserTracks.Add(a);
         vm.BrowserTracks.Add(b);
+        vm.CueMode = CueMode.Split;
+        vm.DeckA.IsCued = true;
 
         var phone = new PhoneView { DataContext = vm };
         // A common phone size in device-independent pixels.

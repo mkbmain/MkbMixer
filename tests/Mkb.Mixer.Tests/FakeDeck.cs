@@ -12,6 +12,7 @@ public sealed class FakeDeck(DeckId id) : IDeck
     public TimeSpan Duration { get; set; }
     public float Volume { get; set; } = 1f;
     public bool IsMuted { get; set; }
+    public bool IsCued { get; set; }
     public float Tempo { get; set; } = 1f;
 
     public int LoadCount { get; private set; }

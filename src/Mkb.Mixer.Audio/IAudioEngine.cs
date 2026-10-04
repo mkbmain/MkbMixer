@@ -22,6 +22,31 @@ public interface IAudioEngine : IDisposable
     /// <summary>What was tried, in order, and what happened. For troubleshooting.</summary>
     IReadOnlyList<string> Diagnostics { get; }
 
+    /// <summary>How the headphone cue is currently routed.</summary>
+    CueMode CueMode { get; }
+
+    /// <summary>The cue device's name in <see cref="Audio.CueMode.Device"/> mode, otherwise null.</summary>
+    string? CueDevice { get; }
+
+    /// <summary>
+    /// Why the cue device looks gone (unplugged, say) while in Device mode, else
+    /// null. The caller should switch the cue off so the stream cannot be moved to
+    /// the room speakers.
+    /// </summary>
+    string? CueFault { get; }
+
+    /// <summary>What the headphones hear: 0 is cued decks only, 1 is the room mix only.</summary>
+    float CueMix { get; set; }
+
+    /// <summary>Real playback devices the cue can go to. Dummy sinks are left out.</summary>
+    IReadOnlyList<string> CueDeviceNames();
+
+    /// <summary>
+    /// Switches cue routing. On failure the cue is left Off and
+    /// <paramref name="error"/> says why.
+    /// </summary>
+    bool TrySetCue(CueMode mode, string? deviceName, out string? error);
+
     /// <summary>Applies a crossfader position to both decks' gains.</summary>
     void ApplyCrossfader(float position);
 

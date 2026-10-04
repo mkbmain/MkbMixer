@@ -8,10 +8,19 @@
   <Border Classes="panel">
     <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,*">
 
-      <!-- Deck name and live/mute indicator -->
-      <Grid Grid.Row="0" ColumnDefinitions="*,Auto">
+      <!-- Deck name, shuffle/repeat/cue toggles and the live/mute indicator -->
+      <Grid Grid.Row="0" ColumnDefinitions="*,Auto,Auto,Auto,Auto">
         <TextBlock Classes="heading" Text="{Binding Label}" VerticalAlignment="Center" />
-        <Button Grid.Column="1" Command="{Binding ToggleMuteCommand}"
+        <ToggleButton Grid.Column="1" Classes="decktoggle" Content="⇄"
+                      IsChecked="{Binding Shuffle}"
+                      ToolTip.Tip="Shuffle: take a random track from this deck's queue" />
+        <ToggleButton Grid.Column="2" Classes="decktoggle" Content="↻"
+                      IsChecked="{Binding Repeat}"
+                      ToolTip.Tip="Repeat: played tracks go back on the end of this deck's queue" />
+        <ToggleButton Grid.Column="3" Classes="decktoggle" Content="CUE"
+                      IsChecked="{Binding IsCued}" IsEnabled="{Binding IsCueAvailable}"
+                      ToolTip.Tip="Send this deck to the headphones. Pick a headphone mode under the crossfader first." />
+        <Button Grid.Column="4" Command="{Binding ToggleMuteCommand}"
                 Background="Transparent" BorderThickness="0" Padding="6,2"
                 ToolTip.Tip="Toggle mute for this deck">
           <TextBlock Text="{Binding MuteLabel}" FontSize="12" FontWeight="Bold"

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Mkb.Mixer.Audio;
 
 namespace Mkb.Mixer.Library;
 
@@ -11,6 +12,13 @@ public sealed class AppSettings
     public float CrossfaderPosition { get; set; } = 0.5f;
     public double WindowWidth { get; set; } = 1280;
     public double WindowHeight { get; set; } = 800;
+    public bool DeckAShuffle { get; set; }
+    public bool DeckARepeat { get; set; }
+    public bool DeckBShuffle { get; set; }
+    public bool DeckBRepeat { get; set; }
+    public CueMode CueMode { get; set; } = CueMode.Off;
+    public string? CueDevice { get; set; }
+    public float CueMix { get; set; }
 }
 
 /// <summary>Persists <see cref="AppSettings"/> as JSON, defaulting rather than throwing.</summary>
