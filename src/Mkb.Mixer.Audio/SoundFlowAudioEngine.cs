@@ -56,6 +56,8 @@ public sealed class SoundFlowAudioEngine : IAudioEngine
             return [MiniAudioBackend.Wasapi, MiniAudioBackend.DirectSound, MiniAudioBackend.WinMm];
         if (OperatingSystem.IsMacOS() || OperatingSystem.IsIOS())
             return [MiniAudioBackend.CoreAudio];
+        if (OperatingSystem.IsAndroid())
+            return [MiniAudioBackend.AAudio, MiniAudioBackend.OpenSl];
         return [MiniAudioBackend.PulseAudio, MiniAudioBackend.Jack, MiniAudioBackend.Alsa];
     }
 

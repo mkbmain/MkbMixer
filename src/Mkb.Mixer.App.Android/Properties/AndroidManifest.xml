@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" android:installLocation="auto">
+	<!-- Android 13+ grants audio files by media type. -->
+	<uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+	<!-- Android 12 and older only have the broad storage permission. -->
+	<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+	<application android:label="MKB Mixer" android:icon="@drawable/Icon" />
+</manifest>

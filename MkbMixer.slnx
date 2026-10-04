@@ -1,6 +1,8 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/Mkb.Mixer.App/Mkb.Mixer.App.csproj" />
+    <Project Path="src/Mkb.Mixer.App.Android/Mkb.Mixer.App.Android.csproj" />
+    <Project Path="src/Mkb.Mixer.App.Desktop/Mkb.Mixer.App.Desktop.csproj" />
     <Project Path="src/Mkb.Mixer.Audio/Mkb.Mixer.Audio.csproj" />
     <Project Path="src/Mkb.Mixer.Library/Mkb.Mixer.Library.csproj" />
   </Folder>

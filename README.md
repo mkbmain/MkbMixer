@@ -1,6 +1,6 @@
 # MKB Music Mixer
 
-A cross-platform dual-deck DJ mixer for Linux, macOS and Windows.
+A cross-platform dual-deck DJ mixer for Linux, macOS, Windows and Android tablets.
 
 This is a rewrite of a .NET 2.0 WinForms application from roughly 2005. The original
 was Windows-only by construction: it drove two `WMPLib.WindowsMediaPlayer` COM
@@ -17,8 +17,36 @@ the next track in as the current one runs out — is unchanged.
 ## Running
 
 ```bash
-dotnet run --project src/Mkb.Mixer.App
+dotnet run --project src/Mkb.Mixer.App.Desktop
 ```
+
+## Android (tablets)
+
+Needs the .NET Android workload (`dotnet workload install android`) and an
+Android SDK. With a tablet connected over USB with debugging enabled:
+
+```bash
+dotnet build src/Mkb.Mixer.App.Android -t:Run
+```
+
+or build the APK and install it yourself:
+
+```bash
+dotnet build src/Mkb.Mixer.App.Android
+adb install src/Mkb.Mixer.App.Android/bin/Debug/net10.0-android/com.mkbmain.mixer-Signed.apk
+```
+
+The app asks for access to audio files on first launch; without it the library
+browser shows folders but no tracks. It browses shared storage
+(`/storage/emulated/0`, starting in `Music`) by path. It is locked to landscape
+because the layout needs a tablet's width; phones are not supported.
+
+Current limitations on Android:
+
+- **Playback stops when the app leaves the screen.** There is no foreground
+  service yet.
+- **SD cards and USB drives are not browsable.** Only primary shared storage is
+  reachable by path; other volumes need the system folder picker.
 
 ## If playback is silent
 
@@ -29,7 +57,7 @@ be opened.
 To see what your machine offers:
 
 ```bash
-dotnet run --project src/Mkb.Mixer.App -- --audio-info
+dotnet run --project src/Mkb.Mixer.App.Desktop -- --audio-info
 ```
 
 That reports every backend miniaudio was compiled with, whether its context
@@ -37,14 +65,14 @@ initialises, how many playback devices it sees, and whether a device actually
 opens. To force one:
 
 ```bash
-dotnet run --project src/Mkb.Mixer.App -- --backend=PulseAudio
+dotnet run --project src/Mkb.Mixer.App.Desktop -- --backend=PulseAudio
 ```
 
 Valid values on Linux are `PulseAudio`, `Jack`, `Alsa` and `Oss`. A specific sink
 can be forced by name substring:
 
 ```bash
-dotnet run --project src/Mkb.Mixer.App -- --device="Built-in Audio"
+dotnet run --project src/Mkb.Mixer.App.Desktop -- --device="Built-in Audio"
 ```
 
 ### "only a dummy/null sink is available"
@@ -88,7 +116,9 @@ None of it needs a sound card.
 |---|---|
 | `src/Mkb.Mixer.Audio` | `IDeck`/`IAudioEngine`, the crossfade curve, the auto-cue state machine, waveform reduction, and the SoundFlow implementation |
 | `src/Mkb.Mixer.Library` | Folder scanning, ID3 tag reading, M3U playlists, settings |
-| `src/Mkb.Mixer.App` | Avalonia UI (MVVM) |
+| `src/Mkb.Mixer.App` | Avalonia UI (MVVM), shared by every platform |
+| `src/Mkb.Mixer.App.Desktop` | Desktop entry point and the `--audio-info` diagnostic |
+| `src/Mkb.Mixer.App.Android` | Android entry point, permissions and manifest |
 | `tests/Mkb.Mixer.Tests` | xUnit |
 
 Everything above `Mkb.Mixer.Audio` talks to `IDeck` and `IAudioEngine`, so the
