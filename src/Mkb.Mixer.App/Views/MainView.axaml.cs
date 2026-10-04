@@ -1,3 +1,4 @@
+using System;
 using Avalonia.Controls;
 using Mkb.Mixer.App.ViewModels;
 
@@ -12,6 +13,15 @@ public partial class MainView : UserControl
     public MainView()
     {
         InitializeComponent();
+
+        // Styles.axaml keys the tablet layout off this class.
+        if (OperatingSystem.IsAndroid())
+        {
+            Classes.Add("touch");
+            Resources["ScrollBarSize"] = 22.0;
+            Resources["ScrollBarThickness"] = 22.0;
+        }
+
         Loaded += (_, _) =>
         {
             if (DataContext is not MainViewModel vm) return;
