@@ -97,6 +97,15 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
         DeckB.Refresh();
         ClockText = DateTime.Now.ToLongTimeString();
         _autoCue.Tick(now);
+        PlayingSummary = (DeckA.IsPlaying, DeckB.IsPlaying) switch
+        {
+            (true, true) => $"{DeckA.NowPlaying} → {DeckB.NowPlaying}",
+            (true, false) => DeckA.NowPlaying,
+            (false, true) => DeckB.NowPlaying,
+            _ => string.Empty
+        };
+        // After the summary, so whoever reacts to this sees the matching text.
+        IsAnyDeckPlaying = DeckA.IsPlaying || DeckB.IsPlaying;
     }
 
     public DeckViewModel DeckA { get; }
@@ -119,6 +128,21 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
     [ObservableProperty] private float _crossfaderPosition;
     [ObservableProperty] private bool _autoCueEnabled;
     [ObservableProperty] private int _crossfadeSeconds;
+
+    /// <summary>
+    /// True while either deck is audible. Android keeps a foreground service running
+    /// off this, so the mix carries on with the screen off.
+    /// </summary>
+    [ObservableProperty] private bool _isAnyDeckPlaying;
+
+    /// <summary>What is audible right now, for the playback notification.</summary>
+    [ObservableProperty] private string _playingSummary = string.Empty;
+
+    /// <summary>
+    /// Replaces the default browser roots when the platform knows better. Android
+    /// supplies its mounted storage volumes here, SD cards and USB drives included.
+    /// </summary>
+    public Func<System.Collections.Generic.IEnumerable<StorageRoot>>? PlatformRoots { get; set; }
 
     partial void OnCrossfaderPositionChanged(float value)
     {
@@ -173,6 +197,12 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
     public void LoadRoots()
     {
         Roots.Clear();
+        if (PlatformRoots is not null)
+        {
+            foreach (StorageRoot root in PlatformRoots().Where(r => Directory.Exists(r.Path)).DistinctBy(r => r.Path))
+                Roots.Add(new FolderNode(root.Path, root.Name));
+            return;
+        }
         foreach (string path in CandidateRoots().Where(Directory.Exists).Distinct())
             Roots.Add(new FolderNode(path));
     }

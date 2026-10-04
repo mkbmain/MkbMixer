@@ -19,6 +19,9 @@ public sealed partial class FolderNode : ObservableObject
 
     public FolderNode(string path) : this(path, isPlaceholder: false) { }
 
+    /// <summary>A root with a name the platform chose, such as "SanDisk SD card".</summary>
+    public FolderNode(string path, string name) : this(path, isPlaceholder: false) => Name = name;
+
     private FolderNode(string path, bool isPlaceholder)
     {
         Path = path;

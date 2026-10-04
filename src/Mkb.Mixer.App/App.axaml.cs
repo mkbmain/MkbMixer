@@ -1,3 +1,5 @@
+using System;
+using System.Collections.Generic;
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
@@ -19,6 +21,12 @@ public partial class App : Application
     /// too small for the two-deck tablet layout.
     /// </summary>
     public static bool UsePhoneLayout { get; set; }
+
+    /// <summary>
+    /// Set by the Android activity to list its mounted storage volumes, which the
+    /// shared code cannot discover by itself.
+    /// </summary>
+    public static Func<IEnumerable<StorageRoot>>? PlatformRoots { get; set; }
 
     public override void Initialize() => AvaloniaXamlLoader.Load(this);
 
@@ -43,7 +51,7 @@ public partial class App : Application
             // Android: the factory runs each time the activity needs a view.
             activity.MainViewFactory = () =>
             {
-                var viewModel = ViewModel ??= new MainViewModel();
+                var viewModel = ViewModel ??= new MainViewModel { PlatformRoots = PlatformRoots };
                 return UsePhoneLayout
                     ? new PhoneView { DataContext = viewModel }
                     : new MainView { DataContext = viewModel };

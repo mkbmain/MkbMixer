@@ -46,8 +46,10 @@ dotnet build src/Mkb.Mixer.App.Android -t:Run
 ```
 
 The app asks for access to audio files on first launch; without it the library
-browser shows folders but no tracks. It browses shared storage
-(`/storage/emulated/0`, starting in `Music`) by path.
+browser shows folders but no tracks. On Android 13 and later it also asks to post
+notifications. The library lists every mounted volume by path: `Music`, internal
+shared storage, and any SD card or USB drive. Roots refresh when a card or drive
+is inserted or removed.
 
 ![First launch on a tablet: empty decks and the library at the Music folder](Pics/Screenshot_20261004-160332.png)
 
@@ -55,12 +57,9 @@ On a tablet the app is locked to landscape and shows the desktop layout. On a
 phone (shortest side under 600dp) it is locked upright and splits into three
 tabs: **Mix** (both decks and the crossfader), **Playlists** and **Library**.
 
-Current limitations on Android:
-
-- **Playback stops when the app leaves the screen.** There is no foreground
-  service yet.
-- **SD cards and USB drives are not browsable.** Only primary shared storage is
-  reachable by path; other volumes need the system folder picker.
+While either deck is playing, a foreground service keeps the app alive with the
+screen off and shows a notification naming what is playing; tapping it returns to
+the app. The service stops after 10 seconds of silence.
 
 ## If playback is silent
 
