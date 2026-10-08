@@ -66,6 +66,9 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
             CrossfadeDuration = TimeSpan.FromSeconds(_settings.CrossfadeSeconds),
             CrossfaderPosition = _settings.CrossfaderPosition
         };
+        TempoMatch = _settings.AutoCueTempoMatch;
+        DeckA.UserChangedTempo += (_, _) => _autoCue.CancelGlide(DeckId.A);
+        DeckB.UserChangedTempo += (_, _) => _autoCue.CancelGlide(DeckId.B);
         _autoCue.CrossfaderMoved += (_, pos) =>
         {
             // The auto-cue owns the fader during a transition; echo it to the slider
@@ -212,6 +215,21 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
     [ObservableProperty] private string _clockText = string.Empty;
     [ObservableProperty] private float _crossfaderPosition;
     [ObservableProperty] private bool _autoCueEnabled;
+
+    [ObservableProperty] private TempoMatchMode _tempoMatch;
+
+    /// <summary>For the combo box, whose items are in enum order.</summary>
+    public int TempoMatchIndex
+    {
+        get => (int)TempoMatch;
+        set => TempoMatch = (TempoMatchMode)Math.Clamp(value, 0, 2);
+    }
+
+    partial void OnTempoMatchChanged(TempoMatchMode value)
+    {
+        _autoCue.TempoMatch = value;
+        OnPropertyChanged(nameof(TempoMatchIndex));
+    }
     [ObservableProperty] private int _crossfadeSeconds;
 
     public System.Collections.Generic.IReadOnlyList<CueMode> CueModes { get; } =
@@ -669,6 +687,7 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
         _settings.LastFolder = CurrentFolder;
         _settings.CrossfadeSeconds = CrossfadeSeconds;
         _settings.AutoCueEnabled = AutoCueEnabled;
+        _settings.AutoCueTempoMatch = TempoMatch;
         _settings.CrossfaderPosition = CrossfaderPosition;
         _settings.DeckAShuffle = DeckA.Shuffle;
         _settings.DeckARepeat = DeckA.Repeat;

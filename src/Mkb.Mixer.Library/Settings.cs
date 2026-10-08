@@ -9,6 +9,7 @@ public sealed class AppSettings
     public string? LastFolder { get; set; }
     public int CrossfadeSeconds { get; set; } = 20;
     public bool AutoCueEnabled { get; set; }
+    public TempoMatchMode AutoCueTempoMatch { get; set; }
     public float CrossfaderPosition { get; set; } = 0.5f;
     public double WindowWidth { get; set; } = 1280;
     public double WindowHeight { get; set; } = 800;

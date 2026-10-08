@@ -33,6 +33,47 @@ public sealed class AutoCue(
     private float _fadeTo;
     private IDeck? _outgoing;
 
+    /// <summary>Tempo matching only bends a track this far; further apart, it would sound wrong.</summary>
+    public const double MaxTempoMatch = 0.08;
+
+    public static readonly TimeSpan GlideDuration = TimeSpan.FromSeconds(8);
+
+    public TempoMatchMode TempoMatch { get; set; }
+
+    private IDeck? _incoming;
+    private bool _matched;
+    private IDeck? _glideDeck;
+    private float _glideFrom;
+    private TimeSpan _glideStartedAt;
+
+    /// <summary>The user has taken over this deck's tempo: stop any glide on it, now or after the fade.</summary>
+    public void CancelGlide(DeckId deck)
+    {
+        if (_glideDeck?.Id == deck) _glideDeck = null;
+        if (_incoming?.Id == deck) _matched = false;
+    }
+
+    private bool TryMatchTempo(IDeck outgoing, IDeck incoming, Track next)
+    {
+        if (TempoMatch == TempoMatchMode.Off) return false;
+        double? outBpm = outgoing.Track is { } t ? Timing(t)?.Bpm : null;
+        double? inBpm = Timing(next)?.Bpm;
+        if (outBpm is not > 0 || inBpm is not > 0) return false;
+
+        double ratio = outBpm.Value * outgoing.Tempo / inBpm.Value;
+        if (Math.Abs(ratio - 1) > MaxTempoMatch) return false;
+        incoming.Tempo = (float)ratio;
+        return true;
+    }
+
+    private void AdvanceGlide(TimeSpan now)
+    {
+        if (_glideDeck is null) return;
+        double t = Math.Clamp((now - _glideStartedAt) / GlideDuration, 0, 1);
+        _glideDeck.Tempo = t >= 1 ? 1f : (float)(_glideFrom + (1 - _glideFrom) * t);
+        if (t >= 1) _glideDeck = null;
+    }
+
     public bool Enabled { get; set; }
 
     /// <summary>How long before the end of a track the fade begins, and how long it lasts.</summary>
@@ -49,6 +90,7 @@ public sealed class AutoCue(
     /// <param name="now">A monotonic clock reading. Only differences between calls matter.</param>
     public void Tick(TimeSpan now)
     {
+        AdvanceGlide(now);
         if (!Enabled)
             return;
 
@@ -67,6 +109,8 @@ public sealed class AutoCue(
             return; // nothing queued, so let the current track simply run out
 
         incoming.Load(next);
+        _matched = TryMatchTempo(active, incoming, next);
+        _incoming = incoming;
         incoming.Play();
         // After Play: some backends restart a stopped player from the top.
         if (Timing(next)?.Start is { } start && start > TimeSpan.Zero)
@@ -122,5 +166,13 @@ public sealed class AutoCue(
         _outgoing?.Stop();
         _outgoing = null;
         State = AutoCueState.Idle;
+        if (_matched && TempoMatch == TempoMatchMode.MatchAndGlide && _incoming is not null)
+        {
+            _glideDeck = _incoming;
+            _glideFrom = _incoming.Tempo;
+            _glideStartedAt = now;
+        }
+        _incoming = null;
+        _matched = false;
     }
 }

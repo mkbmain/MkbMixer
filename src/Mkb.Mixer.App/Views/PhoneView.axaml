@@ -29,7 +29,7 @@
             <views:DeckView DataContext="{Binding DeckA}" />
 
             <Border Classes="panel">
-              <Grid RowDefinitions="Auto,Auto,Auto" ColumnDefinitions="Auto,*,Auto">
+              <Grid RowDefinitions="Auto,Auto,Auto,Auto" ColumnDefinitions="Auto,*,Auto">
                 <TextBlock Classes="heading" Text="A" VerticalAlignment="Center" />
                 <Slider Grid.Column="1" Minimum="0" Maximum="1" Margin="12,0"
                         Value="{Binding CrossfaderPosition}" />
@@ -44,8 +44,18 @@
                                  Value="{Binding CrossfadeSeconds}" />
                 </StackPanel>
 
+                <StackPanel Grid.Row="2" Grid.ColumnSpan="3" Orientation="Horizontal"
+                            HorizontalAlignment="Center" Spacing="8" Margin="0,6,0,0">
+                  <TextBlock Classes="dim" Text="match tempo" VerticalAlignment="Center" />
+                  <ComboBox SelectedIndex="{Binding TempoMatchIndex}" MinWidth="140">
+                    <ComboBoxItem>off</ComboBoxItem>
+                    <ComboBoxItem>match</ComboBoxItem>
+                    <ComboBoxItem>match + glide</ComboBoxItem>
+                  </ComboBox>
+                </StackPanel>
+
                 <!-- Headphone cue. Split is the mode phones can actually use. -->
-                <WrapPanel Grid.Row="2" Grid.ColumnSpan="3" HorizontalAlignment="Center"
+                <WrapPanel Grid.Row="3" Grid.ColumnSpan="3" HorizontalAlignment="Center"
                            Margin="0,6,0,0">
                   <TextBlock Classes="dim" Text="headphones" VerticalAlignment="Center" Margin="0,0,8,0" />
                   <ComboBox ItemsSource="{Binding CueModes}" SelectedItem="{Binding CueMode}"

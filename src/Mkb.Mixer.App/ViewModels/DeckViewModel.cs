@@ -217,9 +217,18 @@ public sealed partial class DeckViewModel : ViewModelBase
     /// <summary>The tempo as a multiplier, which doubles as the button that resets it.</summary>
     public string TempoLabel => $"{Tempo:0.00}×";
 
+    /// <summary>Raised when the user, not the auto-cue, changes this deck's tempo.</summary>
+    public event EventHandler? UserChangedTempo;
+
+    private bool _echoingTempo;
+
     partial void OnTempoChanged(double value)
     {
-        _deck.Tempo = (float)value;
+        if (!_echoingTempo)
+        {
+            _deck.Tempo = (float)value;
+            UserChangedTempo?.Invoke(this, EventArgs.Empty);
+        }
         OnPropertyChanged(nameof(TempoLabel));
         OnPropertyChanged(nameof(HeardBpm));
         OnPropertyChanged(nameof(BpmText));
@@ -414,6 +423,13 @@ public sealed partial class DeckViewModel : ViewModelBase
         {
             _ = OnTrackChangedAsync();
             return;   // it calls Refresh again once caught up
+        }
+        if (Math.Abs(_deck.Tempo - Tempo) > 0.0005)
+        {
+            // The auto-cue moved it. Follow it without treating that as the user's doing.
+            _echoingTempo = true;
+            Tempo = _deck.Tempo;
+            _echoingTempo = false;
         }
         IsPlaying = _deck.State == PlaybackState.Playing;
         TimeSpan pos = _deck.Position, dur = _deck.Duration;
