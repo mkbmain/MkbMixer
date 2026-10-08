@@ -496,7 +496,7 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
                     continue;
                 LibraryRow row = RowFor(await Task.Run(() => TrackMetadataReader.Read(file), ct));
                 _folderRows.Add(row);
-                BrowserRows.Add(row);
+                if (InBpmRange(row.Bpm)) BrowserRows.Add(row);
                 StatusMessage = $"{BrowserRows.Count} match(es)…";
             }
             QueueLibraryAnalysis();

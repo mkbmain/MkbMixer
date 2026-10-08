@@ -105,6 +105,27 @@ public class LibraryFilterTests : IDisposable
     }
 
     [Fact]
+    public async Task ASearchHonoursTheRangeAndHidesUnknowns()
+    {
+        string sub = Directory.CreateDirectory(Path.Combine(_dir, "sub")).FullName;
+        string[] top = LibraryRowTests.Files(_dir, "t_in", "t_out", "t_unknown");
+        string[] nested = LibraryRowTests.Files(sub, "n_in", "n_out");
+        var store = TrackStore.InMemory();
+        store.SetAnalysis(top[0], FakeAudioEngine.Analysis(127));
+        store.SetAnalysis(top[1], FakeAudioEngine.Analysis(90));
+        store.SetAnalysis(nested[0], FakeAudioEngine.Analysis(128));
+        store.SetAnalysis(nested[1], FakeAudioEngine.Analysis(150));
+        var vm = new MainViewModel(new FakeAudioEngine(), new SettingsStore(Path.Combine(_dir, "s.json")), store,
+            post: a => a(), manualAnalysis: true) { AnalyseLibraryBpm = false, CurrentFolder = _dir };
+        vm.BpmMin = 125; vm.BpmMax = 130;
+        vm.SearchText = "_";
+
+        await vm.SearchCommand.ExecuteAsync(null);
+
+        Assert.Equal(["n_in", "t_in"], Titles(vm));
+    }
+
+    [Fact]
     public void TheSettingDefaultsOnAwayFromPhones()
     {
         var vm = new MainViewModel(new FakeAudioEngine(), new SettingsStore(Path.Combine(_dir, "fresh.json")));
