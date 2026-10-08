@@ -68,16 +68,20 @@ a file's size or timestamp changes; only the analysis fields are discarded.
 
 ### AnalysisQueue
 
-Priorities, highest first:
+A track just loaded on a deck is analysed immediately, outside the queue: it also
+needs the waveform, and must never wait behind a folder of background work. It
+always decodes, cached or not.
 
-1. A track just loaded on a deck (needs the waveform too).
-2. Each deck's "next up" track (see §4).
-3. Library folder tracks, when *analyse BPM* is on.
+Background work goes through one worker, highest priority first:
 
-Requests are de-duplicated by path; a cached, still-valid `TrackInfo` is skipped
-(except priority 1, which always decodes for the waveform). Opening another folder
-drops pending priority-3 items. One worker at a time, so background analysis never
-competes with itself for CPU. Results are raised as an event marshalled to the UI
+1. Each deck's "next up" track (see §4).
+2. Library folder tracks, when *analyse BPM* is on.
+
+Requests are de-duplicated by path. The worker skips a track whose cached
+`TrackInfo` is still valid, checking at run time so queueing a big folder does not
+stat every file on the UI thread. Opening another folder drops pending library
+items. A file that fails to decode is skipped without stopping the worker, and is
+not cached, so a later run can retry it. Results are raised as an event on the UI
 thread, so library rows and decks update live.
 
 ### Detection
@@ -94,7 +98,8 @@ returns nulls.
 
 1. Onset envelope: positive energy difference between ~10 ms frames.
 2. Autocorrelation across lags equivalent to 70–180 BPM; the strongest peak wins.
-3. Octave folding into 85–170 BPM. The user corrects outliers with ×½/×2.
+3. Octave folding into 87.5–175 BPM, so 174 BPM drum and bass and 90 BPM hip-hop
+   read as they are. The user corrects outliers with ×½/×2.
 4. Confidence gate: if the peak is not clearly above the mean of the searched range,
    `Bpm` is null. A wrong BPM is worse than none, because sync and auto-cue act on it.
 5. `BeatOffset`: the phase within one beat period that best aligns with onsets.
@@ -175,6 +180,10 @@ A new row under the transport/tempo row on every layout:
   `Func<Track, TrackTiming?>`, which `MainViewModel` wires to `TrackStore`.
 - **Tempo echo.** Auto-cue now changes a deck's tempo, so `DeckViewModel.Refresh()`
   pulls `Tempo` back from the deck, guarded against feeding it straight back.
+- **Track echo.** Auto-cue loads the incoming track on the `IDeck` directly, so
+  today the deck view never redraws its waveform for it. `DeckViewModel.Refresh()`
+  notices the deck's track has changed and does everything a manual load does:
+  waveform, BPM, hot cues and the played flag.
 
 ## Settings
 
@@ -196,7 +205,7 @@ Each step lands as its own commit(s) with its tests, and the app works after eac
 ## Testing
 
 - **Detectors.** Synthetic audio generated in-test: click tracks at 90, 120, 128 and
-  174 BPM (±0.5 BPM after folding); clicks under noise; leading and trailing
+  174 BPM (±0.5 BPM after folding), 75 BPM reading as 150; clicks under noise; leading and trailing
   silence (start/end within 50 ms); a long quiet fade-out; pure noise → null BPM;
   digital silence → null start/end.
 - **TrackStore.** Round trip; corrupt file → empty; invalidation clears analysis but
