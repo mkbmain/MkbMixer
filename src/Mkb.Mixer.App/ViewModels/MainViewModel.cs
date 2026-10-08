@@ -48,6 +48,8 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
 
         DeckA = new DeckViewModel(engine.DeckA, engine, analysis: Analysis);
         DeckB = new DeckViewModel(engine.DeckB, engine, analysis: Analysis);
+        DeckA.Other = DeckB;
+        DeckB.Other = DeckA;
         DeckA.TrackPlayed += (_, t) => OnTrackPlayed(t);
         DeckB.TrackPlayed += (_, t) => OnTrackPlayed(t);
         DeckA.PlaybackRefused += (_, why) => StatusMessage = why;

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.ObjectModel;
+using System.Globalization;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -33,11 +34,89 @@ public sealed partial class DeckViewModel : ViewModelBase
         _analysis = analysis ?? new AnalysisQueue(engine, TrackStore.InMemory(), manual: true);
         // SoundFlow raises this from its audio callback thread, so it has to be
         // marshalled before it touches anything bound to the UI.
+        _analysis.Analysed += (_, path) =>
+        {
+            if (_deck.Track?.Path == path) ApplyStoredInfo();
+        };
         _deck.TrackEnded += (_, _) => Dispatcher.UIThread.Post(() =>
         {
             ReportPlayed();
             PlayNextFromPlaylist();
         });
+    }
+
+    public const double NudgeAmount = 0.04;
+    private double? _nudgeFrom;
+    private string _syncHint = string.Empty;
+
+    /// <summary>The track's BPM at normal speed, after any x1/2 or x2 correction.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HeardBpm), nameof(BpmText))]
+    [NotifyCanExecuteChangedFor(nameof(SyncCommand))]
+    private double? _trackBpm;
+
+    /// <summary>The BPM coming out of the speakers: the track's BPM times the tempo.</summary>
+    public double? HeardBpm => TrackBpm * Tempo;
+
+    public string BpmText => HeardBpm is { } b ? $"{b.ToString("0.0", CultureInfo.InvariantCulture)} BPM" : "— BPM";
+
+    /// <summary>The other deck, for SYNC. Set once by <see cref="MainViewModel"/>.</summary>
+    public DeckViewModel? Other { get; set; }
+
+    public bool HasTrack => _deck.Track is not null;
+
+    /// <summary>Why SYNC is unavailable, or what it does when it is.</summary>
+    public string SyncHint => SyncBlocker ?? "Match this deck's tempo to the other deck";
+
+    private string? SyncBlocker =>
+        TrackBpm is null ? "This deck's BPM isn't known yet"
+        : Other is not { HasTrack: true } ? "Nothing is loaded on the other deck"
+        : Other.HeardBpm is null ? "The other deck's BPM isn't known yet"
+        : null;
+
+    private bool CanSync() => SyncBlocker is null;
+
+    /// <summary>One-shot: sets this deck's tempo so it plays at the other deck's BPM.</summary>
+    [RelayCommand(CanExecute = nameof(CanSync))]
+    private void Sync()
+    {
+        if (TrackBpm is not { } mine || Other?.HeardBpm is not { } theirs) return;
+        Tempo = Math.Clamp(theirs / mine, 0.5, 1.5);
+    }
+
+    [RelayCommand]
+    private void HalveBpm() => ScaleBpm(0.5);
+
+    [RelayCommand]
+    private void DoubleBpm() => ScaleBpm(2);
+
+    private void ScaleBpm(double factor)
+    {
+        if (_deck.Track is not { } t || TrackBpm is null) return;
+        _analysis.Store.Update(t.Path, i => i with { BpmMultiplier = Math.Clamp(i.BpmMultiplier * factor, 0.25, 4) });
+        ApplyStoredInfo();
+    }
+
+    /// <summary>Holding a nudge button briefly speeds up or slows down, to line beats up by ear.</summary>
+    public void BeginNudge(int direction)
+    {
+        if (_nudgeFrom is not null) return;
+        _nudgeFrom = Tempo;
+        Tempo = Math.Clamp(Tempo * (1 + NudgeAmount * Math.Sign(direction)), 0.5, 1.5);
+    }
+
+    public void EndNudge()
+    {
+        if (_nudgeFrom is not { } from) return;
+        _nudgeFrom = null;
+        Tempo = from;
+    }
+
+    /// <summary>Pulls what the store knows about the loaded track onto the deck.</summary>
+    private void ApplyStoredInfo()
+    {
+        TrackInfo? info = _deck.Track is { } t ? _analysis.Store.Get(t.Path) : null;
+        TrackBpm = info?.DisplayBpm;
     }
 
     public DeckId Id => _deck.Id;
@@ -83,6 +162,8 @@ public sealed partial class DeckViewModel : ViewModelBase
     {
         _deck.Tempo = (float)value;
         OnPropertyChanged(nameof(TempoLabel));
+        OnPropertyChanged(nameof(HeardBpm));
+        OnPropertyChanged(nameof(BpmText));
     }
 
     /// <summary>Back to normal speed, since dragging the slider to dead centre on touch is fiddly.</summary>
@@ -109,6 +190,7 @@ public sealed partial class DeckViewModel : ViewModelBase
         _currentTrack = track;
         _playedReported = false;
         Waveform = Waveform.Empty;
+        ApplyStoredInfo();
         Refresh();
         if (track is null) return;
 
@@ -118,7 +200,11 @@ public sealed partial class DeckViewModel : ViewModelBase
         try
         {
             TrackAnalysis analysis = await _analysis.AnalyseForDeckAsync(track, ct);
-            if (!ct.IsCancellationRequested) Waveform = analysis.Waveform;
+            if (!ct.IsCancellationRequested)
+            {
+                Waveform = analysis.Waveform;
+                ApplyStoredInfo();
+            }
         }
         catch (OperationCanceledException) { /* a newer track superseded this one */ }
     }
@@ -247,6 +333,9 @@ public sealed partial class DeckViewModel : ViewModelBase
         Progress = dur > TimeSpan.Zero ? pos.TotalSeconds / dur.TotalSeconds : 0;
         if (_deck.Track is { } t && NowPlaying != t.Display) NowPlaying = t.Display;
         if (IsPlaying && pos >= PlayedThreshold(dur)) ReportPlayed();
+        SyncCommand.NotifyCanExecuteChanged();
+        string hint = SyncHint;
+        if (hint != _syncHint) { _syncHint = hint; OnPropertyChanged(nameof(SyncHint)); }
     }
 
     /// <summary>Raised once per loaded track, when it has played long enough to count, or ended.</summary>
