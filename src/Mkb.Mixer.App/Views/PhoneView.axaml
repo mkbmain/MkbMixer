@@ -133,17 +133,19 @@
           <!-- Tracks in the selected folder. A list rather than the tablet's grid,
                which needs far more width than a phone has for its columns. -->
           <Border Grid.Row="3" Classes="panel" Padding="4" Margin="0,4,0,0">
-            <ListBox Classes="tracks" ItemsSource="{Binding BrowserTracks}"
-                     SelectedItem="{Binding SelectedBrowserTrack}">
+            <ListBox Classes="tracks" ItemsSource="{Binding BrowserRows}"
+                     SelectedItem="{Binding SelectedBrowserRow}">
               <ListBox.ItemTemplate>
-                <DataTemplate x:DataType="audio:Track">
-                  <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto">
-                    <TextBlock Text="{Binding Title}" FontSize="14" FontWeight="SemiBold"
+                <DataTemplate x:DataType="vm:LibraryRow">
+                  <Grid ColumnDefinitions="*,Auto,Auto" RowDefinitions="Auto,Auto" Opacity="{Binding RowOpacity}">
+                    <TextBlock Text="{Binding Track.Title}" FontSize="14" FontWeight="SemiBold"
                                TextTrimming="CharacterEllipsis" />
-                    <TextBlock Grid.Row="1" Classes="dim" Text="{Binding Artist}"
+                    <TextBlock Grid.Row="1" Classes="dim" Text="{Binding Track.Artist}"
                                TextTrimming="CharacterEllipsis" />
                     <TextBlock Grid.Column="1" Grid.RowSpan="2" Classes="time" Margin="10,0,0,0"
-                               Text="{Binding DurationText}" VerticalAlignment="Center" />
+                               Text="{Binding BpmText}" VerticalAlignment="Center" />
+                    <TextBlock Grid.Column="2" Grid.RowSpan="2" Classes="time" Margin="10,0,0,0"
+                               Text="{Binding Track.DurationText}" VerticalAlignment="Center" />
                   </Grid>
                 </DataTemplate>
               </ListBox.ItemTemplate>

@@ -91,15 +91,24 @@
 
           <!-- Tracks in the selected folder -->
           <Grid Grid.Column="2" RowDefinitions="*,Auto">
-            <DataGrid ItemsSource="{Binding BrowserTracks}"
-                      SelectedItem="{Binding SelectedBrowserTrack}"
+            <DataGrid ItemsSource="{Binding BrowserRows}"
+                      SelectedItem="{Binding SelectedBrowserRow}"
                       IsReadOnly="True" GridLinesVisibility="Horizontal"
-                      HeadersVisibility="Column">
+                      HeadersVisibility="Column" CanUserSortColumns="True">
+              <DataGrid.Styles>
+                <Style Selector="DataGridRow" x:DataType="vm:LibraryRow">
+                  <Setter Property="Opacity" Value="{Binding RowOpacity}" />
+                </Style>
+              </DataGrid.Styles>
               <DataGrid.Columns>
-                <DataGridTextColumn Header="Title" Binding="{Binding Title}" Width="*" />
-                <DataGridTextColumn Header="Artist" Binding="{Binding Artist}" Width="200" />
-                <DataGridTextColumn Header="Album" Binding="{Binding Album}" Width="180" />
-                <DataGridTextColumn Header="Time" Binding="{Binding DurationText}" Width="80" />
+                <DataGridTextColumn Header="✓" x:DataType="vm:LibraryRow" Binding="{Binding PlayedMark}" Width="34" />
+                <DataGridTextColumn Header="Title" x:DataType="vm:LibraryRow" Binding="{Binding Track.Title}" Width="*" />
+                <DataGridTextColumn Header="Artist" x:DataType="vm:LibraryRow" Binding="{Binding Track.Artist}" Width="180" />
+                <DataGridTextColumn Header="Album" x:DataType="vm:LibraryRow" Binding="{Binding Track.Album}" Width="160" />
+                <DataGridTextColumn Header="BPM" x:DataType="vm:LibraryRow" Binding="{Binding BpmText}"
+                                    SortMemberPath="BpmSortKey" Width="70" />
+                <DataGridTextColumn Header="Time" x:DataType="vm:LibraryRow" Binding="{Binding Track.DurationText}"
+                                    SortMemberPath="Track.Duration" Width="70" />
               </DataGrid.Columns>
             </DataGrid>
 

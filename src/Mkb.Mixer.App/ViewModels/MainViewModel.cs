@@ -194,10 +194,10 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
     public ObservableCollection<FolderNode> Roots { get; } = [];
 
     /// <summary>Audio files found in the selected folder, filtered by the search box.</summary>
-    public ObservableCollection<Track> BrowserTracks { get; } = [];
+    public ObservableCollection<LibraryRow> BrowserRows { get; } = [];
 
     [ObservableProperty] private FolderNode? _selectedFolder;
-    [ObservableProperty] private Track? _selectedBrowserTrack;
+    [ObservableProperty] private LibraryRow? _selectedBrowserRow;
     [ObservableProperty] private string _searchText = string.Empty;
     [ObservableProperty] private string _currentFolder = string.Empty;
     [ObservableProperty] private string _statusMessage = "Ready";
@@ -381,7 +381,17 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
         if (!string.IsNullOrWhiteSpace(path)) await LoadFolderAsync(path);
     }
 
-    private readonly System.Collections.Generic.List<Track> _folderTracks = [];
+    private readonly System.Collections.Generic.List<LibraryRow> _folderRows = [];
+
+    private LibraryRow RowFor(Track t) => new(t) { Bpm = _tracks.Get(t.Path)?.DisplayBpm };
+
+    /// <summary>Replaces what the library lists. Later tasks hook background analysis in here.</summary>
+    private void SetFolderRows(System.Collections.Generic.IEnumerable<LibraryRow> rows)
+    {
+        _folderRows.Clear();
+        _folderRows.AddRange(rows);
+        ApplyFilter();
+    }
 
     /// <summary>Lists one folder's audio files, reading tags off the UI thread.</summary>
     private async Task LoadFolderAsync(string path)
@@ -393,24 +403,22 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
         CurrentFolder = path;
         IsScanning = true;
         StatusMessage = $"Reading {path}…";
-        _folderTracks.Clear();
-        BrowserTracks.Clear();
+        SetFolderRows([]);
 
         try
         {
             var found = await Task.Run(() =>
             {
-                var list = new System.Collections.Generic.List<Track>();
+                var list = new System.Collections.Generic.List<LibraryRow>();
                 foreach (string file in Directory.EnumerateFiles(path).Where(SupportedFormats.IsAudio))
                 {
                     ct.ThrowIfCancellationRequested();
-                    list.Add(TrackMetadataReader.Read(file));
+                    list.Add(RowFor(TrackMetadataReader.Read(file)));
                 }
                 return list;
             }, ct);
 
-            _folderTracks.AddRange(found);
-            ApplyFilter();
+            SetFolderRows(found);
             StatusMessage = $"{found.Count} track(s) in {Path.GetFileName(path)}";
         }
         catch (OperationCanceledException) { /* superseded by a newer selection */ }
@@ -431,8 +439,7 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
 
         IsScanning = true;
         StatusMessage = $"Searching {CurrentFolder}…";
-        BrowserTracks.Clear();
-        _folderTracks.Clear();
+        SetFolderRows([]);
         string needle = SearchText;
 
         try
@@ -441,12 +448,12 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
             {
                 if (!Path.GetFileName(file).Contains(needle, StringComparison.OrdinalIgnoreCase))
                     continue;
-                Track t = await Task.Run(() => TrackMetadataReader.Read(file), ct);
-                _folderTracks.Add(t);
-                BrowserTracks.Add(t);
-                StatusMessage = $"{BrowserTracks.Count} match(es)…";
+                LibraryRow row = RowFor(await Task.Run(() => TrackMetadataReader.Read(file), ct));
+                _folderRows.Add(row);
+                BrowserRows.Add(row);
+                StatusMessage = $"{BrowserRows.Count} match(es)…";
             }
-            StatusMessage = $"{BrowserTracks.Count} match(es) for \"{needle}\"";
+            StatusMessage = $"{BrowserRows.Count} match(es) for \"{needle}\"";
         }
         catch (OperationCanceledException) { StatusMessage = "Search cancelled"; }
         finally { IsScanning = false; }
@@ -457,14 +464,14 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
 
     private void ApplyFilter()
     {
-        BrowserTracks.Clear();
-        foreach (Track t in _folderTracks.Where(Matches))
-            BrowserTracks.Add(t);
+        BrowserRows.Clear();
+        foreach (LibraryRow row in _folderRows.Where(Matches))
+            BrowserRows.Add(row);
     }
 
-    private bool Matches(Track t) =>
+    private bool Matches(LibraryRow row) =>
         string.IsNullOrWhiteSpace(SearchText) ||
-        t.Display.Contains(SearchText, StringComparison.OrdinalIgnoreCase);
+        row.Track.Display.Contains(SearchText, StringComparison.OrdinalIgnoreCase);
 
     [RelayCommand]
     private void AddToDeckA() => AddToDeck(DeckA);
@@ -474,7 +481,7 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
 
     private void AddToDeck(DeckViewModel deck)
     {
-        if (SelectedBrowserTrack is { } t) deck.Playlist.Add(t);
+        if (SelectedBrowserRow is { } row) deck.Playlist.Add(row.Track);
     }
 
     [RelayCommand]

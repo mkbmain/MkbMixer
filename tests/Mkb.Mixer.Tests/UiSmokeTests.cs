@@ -32,6 +32,9 @@ public class UiSmokeTests
     {
         var (window, _, _) = Build();
         window.Show();
+        var grid = window.GetLogicalDescendants().OfType<Avalonia.Controls.DataGrid>().Single();
+        Assert.Contains(grid.Columns, c => c.SortMemberPath == "BpmSortKey");
+        Assert.Contains(grid.Columns, c => c.SortMemberPath == "Track.Duration");
         Assert.True(window.IsVisible);
         Assert.Equal("MKB Music Mixer", window.Title);
     });
@@ -104,9 +107,9 @@ public class UiSmokeTests
 
         vm.DeckB.Playlist.Add(new Track("/m/3.mp3", "Kalimba", "Mr. Scruff", "Ninja Tuna", TimeSpan.FromSeconds(348)));
 
-        vm.BrowserTracks.Add(a);
-        vm.BrowserTracks.Add(b);
-        vm.BrowserTracks.Add(new Track("/m/4.mp3", "Windowlicker", "Aphex Twin", "Windowlicker", TimeSpan.FromSeconds(366)));
+        vm.BrowserRows.Add(new LibraryRow(a));
+        vm.BrowserRows.Add(new LibraryRow(b));
+        vm.BrowserRows.Add(new LibraryRow(new Track("/m/4.mp3", "Windowlicker", "Aphex Twin", "Windowlicker", TimeSpan.FromSeconds(366))));
         vm.CrossfaderPosition = 0.35f;
         vm.AutoCueEnabled = true;
         vm.StatusMessage = "3 track(s) in Demo";
@@ -163,8 +166,8 @@ public class UiSmokeTests
         vm.DeckB.Refresh();
         vm.DeckA.Playlist.Add(new Track("/m/2.mp3", "Get Up", "Technotronic", "Pump Up the Jam", TimeSpan.FromSeconds(203)));
         vm.DeckB.Playlist.Add(new Track("/m/4.mp3", "Windowlicker", "Aphex Twin", "Windowlicker", TimeSpan.FromSeconds(366)));
-        vm.BrowserTracks.Add(a);
-        vm.BrowserTracks.Add(b);
+        vm.BrowserRows.Add(new LibraryRow(a));
+        vm.BrowserRows.Add(new LibraryRow(b));
         vm.CueMode = CueMode.Split;
         vm.DeckA.IsCued = true;
 
