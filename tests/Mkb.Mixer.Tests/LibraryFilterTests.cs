@@ -132,4 +132,29 @@ public class LibraryFilterTests : IDisposable
 
         Assert.True(vm.AnalyseLibraryBpm);   // tests run with App.UsePhoneLayout false
     }
+
+    [Fact]
+    public async Task AFileNameOnlySearchHitSurvivesABpmRangeChange()
+    {
+        var (vm, _, _) = await Library();
+        vm.SearchText = ".mp3";   // in every file name, in no title
+        await vm.SearchCommand.ExecuteAsync(null);
+        Assert.Equal(["a", "b", "c"], Titles(vm));
+
+        vm.BpmMin = 115; vm.BpmMax = 125;
+
+        Assert.Equal(["a"], Titles(vm));
+    }
+
+    [Fact]
+    public async Task HalvingADecksBpmUpdatesItsLibraryRow()
+    {
+        var (vm, engine, paths) = await Library();
+        engine.Analyses[paths[0]] = FakeAudioEngine.Analysis(120);
+        await vm.DeckA.LoadAsync(vm.BrowserRows.Single(r => r.Track.Path == paths[0]).Track);
+
+        vm.DeckA.HalveBpmCommand.Execute(null);
+
+        Assert.Equal(60, vm.BrowserRows.Single(r => r.Track.Path == paths[0]).Bpm);
+    }
 }

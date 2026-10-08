@@ -35,8 +35,6 @@ public sealed partial class DeckViewModel : ViewModelBase
         _engine = engine;
         _random = random ?? Random.Shared;
         _analysis = analysis ?? new AnalysisQueue(engine, TrackStore.InMemory(), manual: true);
-        // SoundFlow raises this from its audio callback thread, so it has to be
-        // marshalled before it touches anything bound to the UI.
         _analysis.Analysed += (_, path) =>
         {
             if (_deck.Track?.Path == path) ApplyStoredInfo();
@@ -45,6 +43,8 @@ public sealed partial class DeckViewModel : ViewModelBase
         {
             if (!_dequeuing) PrefetchNext();
         };
+        // SoundFlow raises this from its audio callback thread, so it has to be
+        // marshalled before it touches anything bound to the UI.
         _deck.TrackEnded += (_, _) => Dispatcher.UIThread.Post(() =>
         {
             ReportPlayed();
@@ -97,11 +97,18 @@ public sealed partial class DeckViewModel : ViewModelBase
     [RelayCommand]
     private void DoubleBpm() => ScaleBpm(2);
 
+    /// <summary>Raised with the track's path after its BPM is halved or doubled, so the library can refresh.</summary>
+    public event EventHandler<string>? BpmCorrected;
+
+    /// <summary>Raised with the track's path after a hot cue is set or cleared.</summary>
+    public event EventHandler<string>? CuesChanged;
+
     private void ScaleBpm(double factor)
     {
         if (_deck.Track is not { } t || TrackBpm is null) return;
         _analysis.Store.Update(t.Path, i => i with { BpmMultiplier = Math.Clamp(i.BpmMultiplier * factor, 0.25, 4) });
         ApplyStoredInfo();
+        BpmCorrected?.Invoke(this, t.Path);
     }
 
     /// <summary>Holding a nudge button briefly speeds up or slows down, to line beats up by ear.</summary>
@@ -164,6 +171,7 @@ public sealed partial class DeckViewModel : ViewModelBase
     {
         _analysis.Store.Update(track.Path, i => i.WithHotCue(slot.Index, slot.Seconds));
         UpdateCueFractions();
+        CuesChanged?.Invoke(this, track.Path);
     }
 
     private void UpdateCueFractions()
@@ -307,7 +315,9 @@ public sealed partial class DeckViewModel : ViewModelBase
         _deck.Play();
         // Some backends restart a stopped player from the top; keep a hot cue
         // jump made while stopped.
-        if (fromStop && at > TimeSpan.Zero) _deck.Seek(at);
+        // After a natural end the position is still at the end: start over instead.
+        if (fromStop && at > TimeSpan.Zero && at < _deck.Duration - TimeSpan.FromMilliseconds(100))
+            _deck.Seek(at);
         Refresh();
     }
 
@@ -357,7 +367,8 @@ public sealed partial class DeckViewModel : ViewModelBase
     public Track? PeekNext()
     {
         if (Playlist.Count == 0) return _nextUp = null;
-        if (_nextUp is not null && Playlist.Contains(_nextUp) && (Shuffle || Equals(Playlist[0], _nextUp)))
+        if (_nextUp is not null && Playlist.Contains(_nextUp) && (Shuffle || Equals(Playlist[0], _nextUp))
+            && !(ReferenceEquals(_nextUp, _lastDequeued) && Playlist.Count > 1))
             return _nextUp;
 
         int index = 0;

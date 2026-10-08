@@ -29,7 +29,8 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
 
     public AnalysisQueue Analysis { get; }
 
-    public MainViewModel() : this(new SoundFlowAudioEngine(), SettingsStore.Default(), TrackStore.Default()) { }
+    public MainViewModel() : this(new SoundFlowAudioEngine(), SettingsStore.Default(), TrackStore.Default(),
+        post: a => Dispatcher.UIThread.Post(a)) { }
 
     /// <summary>Remembers nothing per track between runs. For tests.</summary>
     public MainViewModel(IAudioEngine engine, SettingsStore settingsStore)
@@ -82,7 +83,11 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
         _autoCueEnabled = _settings.AutoCueEnabled;
         _crossfadeSeconds = _settings.CrossfadeSeconds;
         _analyseLibraryBpm = _settings.AnalyseLibraryBpm ?? !App.UsePhoneLayout;
-        Analysis.Analysed += (_, path) => OnAnalysed(path);
+        Analysis.Analysed += (_, path) => { _timings.Remove(path); OnAnalysed(path); };
+        DeckA.BpmCorrected += (_, path) => { _timings.Remove(path); OnAnalysed(path); };
+        DeckB.BpmCorrected += (_, path) => { _timings.Remove(path); OnAnalysed(path); };
+        DeckA.CuesChanged += (_, path) => _timings.Remove(path);
+        DeckB.CuesChanged += (_, path) => _timings.Remove(path);
         _currentFolder = _settings.LastFolder ?? DefaultFolder();
         engine.ApplyCrossfader(_crossfaderPosition);
 
@@ -346,6 +351,16 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
     /// <summary>Hot cue 1 beats the detected first sound as the place to bring a track in.</summary>
     private TrackTiming? TimingFor(Track track)
     {
+        // The auto-cue asks every tick; keep it off the disk (Get stats the file).
+        // Dropped whenever the analysis, a hot cue or the BPM correction changes.
+        if (_timings.TryGetValue(track.Path, out TrackTiming? cached)) return cached;
+        return _timings[track.Path] = ComputeTiming(track);
+    }
+
+    private readonly System.Collections.Generic.Dictionary<string, TrackTiming?> _timings = new();
+
+    private TrackTiming? ComputeTiming(Track track)
+    {
         if (_tracks.Get(track.Path) is not { } info) return null;
         return new TrackTiming(
             Seconds(info.HotCueSeconds[0] ?? info.FirstSoundSeconds),
@@ -549,7 +564,9 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
     private bool Matches(LibraryRow row) =>
         InBpmRange(row.Bpm) &&
         (string.IsNullOrWhiteSpace(SearchText) ||
-         row.Track.Display.Contains(SearchText, StringComparison.OrdinalIgnoreCase));
+         row.Track.Display.Contains(SearchText, StringComparison.OrdinalIgnoreCase) ||
+         // Deep search matches file names, so a filter re-test must too.
+         Path.GetFileName(row.Track.Path).Contains(SearchText, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>The ≈ button's window around the audible deck's BPM.</summary>
     public const double MatchBpmRange = 0.06;

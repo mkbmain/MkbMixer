@@ -116,4 +116,30 @@ public class HotCueTests
 
         Assert.False(deck.HotCues[0].IsSet);
     }
+
+    [Fact]
+    public async Task PlayingAfterANaturalEndStartsOver()
+    {
+        var (deck, fake, _) = await Loaded();
+        fake.RewindsOnPlayFromStop = true;
+        fake.Position = fake.Duration;
+
+        await deck.PlayCommand.ExecuteAsync(null);
+
+        Assert.Equal(TimeSpan.Zero, fake.Position);
+    }
+
+    [Fact]
+    public async Task ResumingFromPauseDoesNotSeek()
+    {
+        var (deck, fake, _) = await Loaded();
+        fake.RewindsOnPlayFromStop = true;
+        await deck.PlayCommand.ExecuteAsync(null);
+        fake.Position = TimeSpan.FromSeconds(30);
+        deck.PauseCommand.Execute(null);
+
+        await deck.PlayCommand.ExecuteAsync(null);
+
+        Assert.Equal(TimeSpan.FromSeconds(30), fake.Position);
+    }
 }

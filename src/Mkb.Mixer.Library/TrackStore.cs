@@ -108,8 +108,9 @@ public sealed class TrackStore : IDisposable
             lock (_gate)
             {
                 if (!_dirty) return;
-                json = JsonSerializer.Serialize(_tracks, Options);
                 _dirty = false;
+                try { json = JsonSerializer.Serialize(_tracks, Options); }
+                catch (Exception) { _dirty = true; return; }
             }
             try
             {
@@ -119,8 +120,9 @@ public sealed class TrackStore : IDisposable
                 File.WriteAllText(temp, json);
                 File.Move(temp, _path, overwrite: true);
             }
-            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            catch (Exception)
             {
+                // Never throw: this runs on a timer thread, where an escape ends the process.
                 // Losing track memory is not worth crashing over; try again next change.
                 lock (_gate) _dirty = true;
             }
@@ -142,9 +144,12 @@ public sealed class TrackStore : IDisposable
             var loaded = JsonSerializer.Deserialize<Dictionary<string, TrackInfo>>(File.ReadAllText(path), Options);
             if (loaded is null) return empty;
             foreach (var (key, info) in loaded)
+            {
+                if (info is null) continue;
                 empty[key] = info.HotCueSeconds?.Length == TrackInfo.HotCueCount
                     ? info
                     : info with { HotCueSeconds = Resize(info.HotCueSeconds) };
+            }
             return empty;
         }
         catch (Exception e) when (e is JsonException or IOException or UnauthorizedAccessException)

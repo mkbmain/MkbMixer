@@ -76,4 +76,20 @@ public class LookAheadTests
 
         Assert.Equal(["/m/a.mp3"], engine.AnalysedPaths);
     }
+
+    [Fact]
+    public void ShuffleWithRepeatNeverReplaysTheSongJustPlayedWhenAnotherArrives()
+    {
+        var (deck, _, _) = Deck();
+        deck.Shuffle = true;
+        deck.Repeat = true;
+        Track a = T("a"), b = T("b");
+        deck.Playlist.Add(a);
+        Assert.Same(a, deck.DequeueNext());
+        Assert.Same(a, deck.PeekNext());   // only a to choose from, held
+
+        deck.Playlist.Add(b);
+
+        Assert.Same(b, deck.DequeueNext());
+    }
 }

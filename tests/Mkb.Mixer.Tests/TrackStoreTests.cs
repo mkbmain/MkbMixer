@@ -117,4 +117,26 @@ public class TrackStoreTests : IDisposable
 
         Assert.Equal(["/m/4.mp3", "/m/3.mp3", "/m/2.mp3"], store.RecentlyPlayed(3));
     }
+
+    [Fact]
+    public void ANullEntryInTheFileIsSkippedNotFatal()
+    {
+        File.WriteAllText(StorePath, "{\"/a.mp3\": null, \"/b.mp3\": {\"PlayCount\": 2}}");
+
+        using var store = new TrackStore(StorePath);
+
+        Assert.Null(store.Get("/a.mp3"));
+        Assert.Equal(2, store.Get("/b.mp3")!.PlayCount);
+    }
+
+    [Fact]
+    public void FlushNeverThrowsWhenTheStoreCannotBeSerialised()
+    {
+        using var store = new TrackStore(StorePath);
+        store.Update("/a.mp3", i => i with { Bpm = double.NaN });
+
+        var ex = Record.Exception(store.Flush);
+
+        Assert.Null(ex);
+    }
 }
