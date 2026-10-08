@@ -218,7 +218,7 @@
   </Style>
 
   <Style Selector=".phone Button.transport">
-    <Setter Property="Width" Value="52" />
+    <Setter Property="Width" Value="46" />
     <Setter Property="Height" Value="44" />
   </Style>
 
@@ -231,7 +231,6 @@
     <Setter Property="IsVisible" Value="False" />
   </Style>
 
-  <!-- On the playlists tab each list fills its half of the screen. -->
   <Style Selector=".phone ItemsControl.hotcues">
     <Setter Property="Grid.Row" Value="1" />
     <Setter Property="Grid.Column" Value="0" />
@@ -239,6 +238,7 @@
     <Setter Property="Margin" Value="0,8,0,0" />
   </Style>
 
+  <!-- On the playlists tab each list fills its half of the screen. -->
   <Style Selector=".phone ListBox.playlist">
     <Setter Property="MaxHeight" Value="Infinity" />
   </Style>
