@@ -50,11 +50,13 @@
         <Button Grid.Column="2" Classes="transport" Content="■" Margin="6,0,0,0"
                 Command="{Binding StopCommand}" ToolTip.Tip="Stop" />
 
-        <TextBlock Grid.Column="4" Classes="dim tempolabel" Text="tempo" VerticalAlignment="Center"
-                   Margin="0,0,8,0" />
+        <Button Grid.Column="4" Classes="temporeset" Content="{Binding TempoLabel}"
+                Command="{Binding ResetTempoCommand}" VerticalAlignment="Center"
+                Margin="0,0,6,0" ToolTip.Tip="Reset tempo to normal speed" />
         <Slider Grid.Column="5" Classes="tempo" Minimum="0.5" Maximum="1.5"
                 TickFrequency="0.25" Value="{Binding Tempo}"
-                ToolTip.Tip="Playback speed. Pitch is preserved." />
+                DoubleTapped="OnTempoDoubleTapped"
+                ToolTip.Tip="Playback speed. Pitch is preserved. Double-tap to reset." />
       </Grid>
 
       <!-- Playlist for this deck. The phone layout hides it here and shows it on

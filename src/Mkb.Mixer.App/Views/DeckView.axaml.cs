@@ -1,4 +1,5 @@
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Markup.Xaml;
 using Mkb.Mixer.App.Controls;
 using Mkb.Mixer.App.ViewModels;
@@ -14,6 +15,9 @@ public partial class DeckView : UserControl
         this.FindControl<WaveformView>("Wave")!.Seeked += (_, fraction) =>
             (DataContext as DeckViewModel)?.SeekToFraction(fraction);
     }
+
+    private void OnTempoDoubleTapped(object? sender, TappedEventArgs e) =>
+        (DataContext as DeckViewModel)?.ResetTempoCommand.Execute(null);
 
     private void InitializeComponent() => AvaloniaXamlLoader.Load(this);
 }
