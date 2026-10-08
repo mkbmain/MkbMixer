@@ -104,9 +104,10 @@ public class AudioEngineIntegrationTests : IDisposable
     public async Task WaveformAnalysisReturnsRealPeaks()
     {
         using var engine = new SoundFlowAudioEngine();
-        Waveform wave = await engine.AnalyseAsync(WriteTone(seconds: 2));
+        TrackAnalysis analysis = await engine.AnalyseAsync(WriteTone(seconds: 2));
 
-        Assert.Equal(Waveform.DefaultBuckets, wave.Peaks.Length);
-        Assert.Contains(wave.Peaks, p => p > 0.2f);
+        Assert.Equal(Waveform.DefaultBuckets, analysis.Waveform.Peaks.Length);
+        Assert.Contains(analysis.Waveform.Peaks, p => p > 0.2f);
+        Assert.Equal(0, analysis.FirstSound!.Value.TotalSeconds, 0.05);
     }
 }

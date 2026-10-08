@@ -4,6 +4,19 @@ namespace Mkb.Mixer.Tests;
 
 public class TempoDetectorTests
 {
+    [Fact]
+    public void OneDecodeGivesWaveformTempoAndSilence()
+    {
+        float[] mono = Synth.Concat(Synth.Silence(1, 44100), Synth.Clicks(120, 30, rate: 44100), Synth.Silence(2, 44100));
+
+        TrackAnalysis a = TrackAnalysis.FromSamples(Synth.Stereo(mono), channels: 2, sampleRate: 44100);
+
+        Assert.Equal(Waveform.DefaultBuckets, a.Waveform.Peaks.Length);
+        Assert.Equal(120, a.Bpm!.Value, 0.5);
+        Assert.Equal(1.0, a.FirstSound!.Value.TotalSeconds, 0.05);
+        Assert.InRange(a.LastSound!.Value.TotalSeconds, 30.5, 31.05);
+    }
+
     [Theory]
     [InlineData(90)] [InlineData(120)] [InlineData(128)] [InlineData(174)]
     public void FindsTheTempoOfAClickTrack(double bpm)

@@ -94,8 +94,8 @@ public sealed partial class DeckViewModel : ViewModelBase
         CancellationToken ct = _analysis.Token;
         try
         {
-            Waveform wave = await _engine.AnalyseAsync(track.Path, ct);
-            if (!ct.IsCancellationRequested) Waveform = wave;
+            TrackAnalysis analysis = await _engine.AnalyseAsync(track.Path, ct);
+            if (!ct.IsCancellationRequested) Waveform = analysis.Waveform;
         }
         catch (OperationCanceledException) { /* a newer track superseded this one */ }
     }
