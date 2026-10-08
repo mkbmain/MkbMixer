@@ -24,6 +24,8 @@ public sealed partial class DeckViewModel : ViewModelBase
     private CancellationTokenSource? _analysisCts;
     private Track? _currentTrack;
     private Track? _lastDequeued;
+    private Track? _nextUp;
+    private bool _dequeuing;
 
     /// <param name="random">Injectable so tests can make shuffle deterministic.</param>
     /// <param name="analysis">Shared with the other deck and the library; a private in-memory one when omitted.</param>
@@ -38,6 +40,10 @@ public sealed partial class DeckViewModel : ViewModelBase
         _analysis.Analysed += (_, path) =>
         {
             if (_deck.Track?.Path == path) ApplyStoredInfo();
+        };
+        Playlist.CollectionChanged += (_, _) =>
+        {
+            if (!_dequeuing) PrefetchNext();
         };
         _deck.TrackEnded += (_, _) => Dispatcher.UIThread.Post(() =>
         {
@@ -334,12 +340,16 @@ public sealed partial class DeckViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// Pops the next queued track, honouring shuffle and repeat. The auto-cue and
-    /// "play the next track when this one ends" both come through here.
+    /// The track <see cref="DequeueNext"/> will return. Chosen once and held, so
+    /// shuffle's random pick is known early enough to analyse it before the
+    /// auto-cue needs its start point. Chosen again if it leaves the playlist, or
+    /// stops being the top of an unshuffled one.
     /// </summary>
-    public Track? DequeueNext()
+    public Track? PeekNext()
     {
-        if (Playlist.Count == 0) return null;
+        if (Playlist.Count == 0) return _nextUp = null;
+        if (_nextUp is not null && Playlist.Contains(_nextUp) && (Shuffle || Equals(Playlist[0], _nextUp)))
+            return _nextUp;
 
         int index = 0;
         if (Shuffle && Playlist.Count > 1)
@@ -353,13 +363,34 @@ public sealed partial class DeckViewModel : ViewModelBase
                 candidates = Enumerable.Range(0, Playlist.Count).ToArray();
             index = candidates[_random.Next(candidates.Length)];
         }
+        return _nextUp = Playlist[index];
+    }
 
-        Track next = Playlist[index];
-        Playlist.RemoveAt(index);
-        if (Repeat) Playlist.Add(next);
+    /// <summary>
+    /// Pops the next queued track, honouring shuffle and repeat. The auto-cue and
+    /// "play the next track when this one ends" both come through here.
+    /// </summary>
+    public Track? DequeueNext()
+    {
+        if (PeekNext() is not { } next) return null;
+
+        _dequeuing = true;   // re-picking mid-way would see a stale _lastDequeued
+        try
+        {
+            Playlist.RemoveAt(Playlist.IndexOf(next));
+            if (Repeat) Playlist.Add(next);
+        }
+        finally { _dequeuing = false; }
+
         _lastDequeued = next;
+        _nextUp = null;
+        PrefetchNext();
         return next;
     }
+
+    private void PrefetchNext() => _analysis.Prefetch(PeekNext());
+
+    partial void OnShuffleChanged(bool value) { _nextUp = null; PrefetchNext(); }
 
     private async void PlayNextFromPlaylist()
     {
