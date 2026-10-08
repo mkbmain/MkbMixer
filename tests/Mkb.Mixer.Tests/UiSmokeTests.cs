@@ -3,6 +3,7 @@ using Avalonia.Controls.Primitives;
 using Avalonia.Threading;
 using Avalonia.Headless;
 using Avalonia.LogicalTree;
+using Avalonia.VisualTree;
 using Avalonia.Media.Imaging;
 using Mkb.Mixer.App.ViewModels;
 using Mkb.Mixer.App.Views;
@@ -32,6 +33,9 @@ public class UiSmokeTests
     {
         var (window, _, _) = Build();
         window.Show();
+        var grid = window.GetLogicalDescendants().OfType<Avalonia.Controls.DataGrid>().Single();
+        Assert.Contains(grid.Columns, c => c.SortMemberPath == "BpmSortKey");
+        Assert.Contains(grid.Columns, c => c.SortMemberPath == "Track.Duration");
         Assert.True(window.IsVisible);
         Assert.Equal("MKB Music Mixer", window.Title);
     });
@@ -75,19 +79,20 @@ public class UiSmokeTests
         Assert.Equal("Fake USB", vm.CueDevice);
     });
 
-    [Fact]
-    public void RendersPopulatedLayoutToPng() => AvaloniaTest.Run(() =>
+    /// <summary>Two loaded decks with BPMs, hot cues and playlists, and a few library rows.</summary>
+    private static void Populate(MainViewModel vm, FakeAudioEngine engine)
     {
-        var (window, vm, engine) = Build();
-
-        // Give both decks a loaded track, a waveform and a playlist.
         var a = new Track("/music/sandstorm.mp3", "Sandstorm", "Darude", "Before the Storm", TimeSpan.FromSeconds(224));
         var b = new Track("/music/kalimba.mp3", "Kalimba", "Mr. Scruff", "Ninja Tuna", TimeSpan.FromSeconds(348));
+        engine.Analyses[a.Path] = FakeAudioEngine.Analysis(136);
+        engine.Analyses[b.Path] = FakeAudioEngine.Analysis(122);
 
-        engine.A.Duration = a.Duration;
-        engine.B.Duration = b.Duration;
         vm.DeckA.LoadAsync(a).Wait();
         vm.DeckB.LoadAsync(b).Wait();
+        engine.A.Position = TimeSpan.FromSeconds(30);
+        vm.DeckA.HotCueCommand.Execute(vm.DeckA.HotCues[0]);
+        engine.A.Position = TimeSpan.FromSeconds(150);
+        vm.DeckA.HotCueCommand.Execute(vm.DeckA.HotCues[2]);
         engine.A.Position = TimeSpan.FromSeconds(96);
         engine.A.Play();
         engine.B.Position = TimeSpan.FromSeconds(18);
@@ -95,18 +100,13 @@ public class UiSmokeTests
         vm.DeckB.Refresh();
         vm.DeckB.IsMuted = true;
 
-        foreach (var t in new[]
-                 {
-                     new Track("/m/1.mp3", "Sandstorm", "Darude", "Before the Storm", TimeSpan.FromSeconds(224)),
-                     new Track("/m/2.mp3", "Get Up", "Technotronic", "Pump Up the Jam", TimeSpan.FromSeconds(203)),
-                 })
-            vm.DeckA.Playlist.Add(t);
-
+        vm.DeckA.Playlist.Add(new Track("/m/1.mp3", "Sandstorm", "Darude", "Before the Storm", TimeSpan.FromSeconds(224)));
+        vm.DeckA.Playlist.Add(new Track("/m/2.mp3", "Get Up", "Technotronic", "Pump Up the Jam", TimeSpan.FromSeconds(203)));
         vm.DeckB.Playlist.Add(new Track("/m/3.mp3", "Kalimba", "Mr. Scruff", "Ninja Tuna", TimeSpan.FromSeconds(348)));
 
-        vm.BrowserTracks.Add(a);
-        vm.BrowserTracks.Add(b);
-        vm.BrowserTracks.Add(new Track("/m/4.mp3", "Windowlicker", "Aphex Twin", "Windowlicker", TimeSpan.FromSeconds(366)));
+        vm.BrowserRows.Add(new LibraryRow(a) { Bpm = 136, IsPlayed = true });
+        vm.BrowserRows.Add(new LibraryRow(b) { Bpm = 122 });
+        vm.BrowserRows.Add(new LibraryRow(new Track("/m/4.mp3", "Windowlicker", "Aphex Twin", "Windowlicker", TimeSpan.FromSeconds(366))));
         vm.CrossfaderPosition = 0.35f;
         vm.AutoCueEnabled = true;
         vm.StatusMessage = "3 track(s) in Demo";
@@ -114,6 +114,52 @@ public class UiSmokeTests
         vm.CueDevice = "Fake USB";
         vm.DeckB.IsCued = true;
         vm.DeckA.Shuffle = true;
+    }
+
+    [Fact]
+    public void DecksShowFourHotCuesEachAndBpmControls() => AvaloniaTest.Run(() =>
+    {
+        var (window, vm, engine) = Build();
+        Populate(vm, engine);
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        List<Avalonia.Controls.Button> buttons = window.GetVisualDescendants().OfType<Avalonia.Controls.Button>().ToList();
+        Assert.Equal(8, buttons.Count(b => b.Classes.Contains("hotcue")));
+        Assert.Equal(2, buttons.Count(b => b.Content as string == "SYNC"));
+        Assert.Contains(buttons, b => b.Content as string == "136.0 BPM");
+    });
+
+    /// <summary>The Android tablet layout: the desktop view with the "touch" class.</summary>
+    [Fact]
+    public void RendersTabletLayoutToPng() => AvaloniaTest.Run(() =>
+    {
+        var (_, vm, engine) = Build();
+        Populate(vm, engine);
+        var view = new MainView { DataContext = vm };
+        view.Classes.Add("touch");
+        var window = new Avalonia.Controls.Window { Content = view, Width = 1280, Height = 800 };
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+        window.UpdateLayout();
+
+        string dir = Path.GetDirectoryName(Environment.GetEnvironmentVariable("MKB_UI_SNAPSHOT")
+                                           ?? Path.Combine(Path.GetTempPath(), "x.png"))!;
+        string output = Path.Combine(dir, "mkb-mixer-tablet.png");
+        using Bitmap frame = window.CaptureRenderedFrame()
+                             ?? throw new InvalidOperationException("no frame captured");
+#pragma warning disable CS0618
+        frame.Save(output);
+#pragma warning restore CS0618
+        Assert.True(new FileInfo(output).Length > 10_000, "rendered frame looks empty");
+    });
+
+    [Fact]
+    public void RendersPopulatedLayoutToPng() => AvaloniaTest.Run(() =>
+    {
+        var (window, vm, engine) = Build();
+
+        Populate(vm, engine);
 
         window.Show();
         Dispatcher.UIThread.RunJobs();
@@ -152,19 +198,7 @@ public class UiSmokeTests
         string settings = Path.Combine(Path.GetTempPath(), $"mkb-ui-{Guid.NewGuid():N}.json");
         var vm = new MainViewModel(engine, new SettingsStore(settings));
 
-        var a = new Track("/music/sandstorm.mp3", "Sandstorm", "Darude", "Before the Storm", TimeSpan.FromSeconds(224));
-        var b = new Track("/music/kalimba.mp3", "Kalimba", "Mr. Scruff", "Ninja Tuna", TimeSpan.FromSeconds(348));
-        engine.A.Duration = a.Duration;
-        engine.B.Duration = b.Duration;
-        vm.DeckA.LoadAsync(a).Wait();
-        vm.DeckB.LoadAsync(b).Wait();
-        engine.A.Position = TimeSpan.FromSeconds(96);
-        vm.DeckA.Refresh();
-        vm.DeckB.Refresh();
-        vm.DeckA.Playlist.Add(new Track("/m/2.mp3", "Get Up", "Technotronic", "Pump Up the Jam", TimeSpan.FromSeconds(203)));
-        vm.DeckB.Playlist.Add(new Track("/m/4.mp3", "Windowlicker", "Aphex Twin", "Windowlicker", TimeSpan.FromSeconds(366)));
-        vm.BrowserTracks.Add(a);
-        vm.BrowserTracks.Add(b);
+        Populate(vm, engine);
         vm.CueMode = CueMode.Split;
         vm.DeckA.IsCued = true;
 

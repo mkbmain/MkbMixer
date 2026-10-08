@@ -421,10 +421,10 @@ public sealed class SoundFlowAudioEngine : IAudioEngine
         _b.Volume = gainB;
     }
 
-    public Task<Waveform> AnalyseAsync(string path, CancellationToken ct = default) =>
+    public Task<TrackAnalysis> AnalyseAsync(string path, CancellationToken ct = default) =>
         Task.Run(() =>
         {
-            if (_engine is null) return Waveform.Empty;
+            if (_engine is null) return TrackAnalysis.Empty;
             try
             {
                 using var stream = File.OpenRead(path);
@@ -440,15 +440,15 @@ public sealed class SoundFlowAudioEngine : IAudioEngine
                     samples.AddRange(buffer.AsSpan(0, read));
                 }
 
-                return Waveform.FromSamples(
+                return TrackAnalysis.FromSamples(
                     System.Runtime.InteropServices.CollectionsMarshal.AsSpan(samples),
                     Format.Channels,
-                    Waveform.DefaultBuckets);
+                    Format.SampleRate);
             }
             catch (OperationCanceledException) { throw; }
             catch
             {
-                return Waveform.Empty;
+                return TrackAnalysis.Empty;
             }
         }, ct);
 

@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Mkb.Mixer.App.Services;
 using Mkb.Mixer.Audio;
 using Mkb.Mixer.Library;
 
@@ -18,6 +19,7 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
     private readonly IAudioEngine _engine;
     private readonly SettingsStore _settingsStore;
     private readonly AppSettings _settings;
+    private readonly TrackStore _tracks;
     private readonly AutoCue _autoCue;
     private DispatcherTimer? _timer;
     private readonly Stopwatch _clock = Stopwatch.StartNew();
@@ -25,16 +27,32 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
     private bool _suppressFaderFeedback;
     private readonly System.Collections.Generic.List<DeckViewModel> _pausedByPauseAll = [];
 
-    public MainViewModel() : this(new SoundFlowAudioEngine(), SettingsStore.Default()) { }
+    public AnalysisQueue Analysis { get; }
 
+    public MainViewModel() : this(new SoundFlowAudioEngine(), SettingsStore.Default(), TrackStore.Default(),
+        post: a => Dispatcher.UIThread.Post(a)) { }
+
+    /// <summary>Remembers nothing per track between runs. For tests.</summary>
     public MainViewModel(IAudioEngine engine, SettingsStore settingsStore)
+        : this(engine, settingsStore, TrackStore.InMemory()) { }
+
+    /// <param name="post">How analysis results reach the UI thread; see <see cref="AnalysisQueue"/>.</param>
+    /// <param name="manualAnalysis">No background worker; tests drive <see cref="Analysis"/> themselves.</param>
+    public MainViewModel(IAudioEngine engine, SettingsStore settingsStore, TrackStore tracks,
+                         Action<Action>? post = null, bool manualAnalysis = false)
     {
         _engine = engine;
         _settingsStore = settingsStore;
         _settings = settingsStore.Load();
+        _tracks = tracks;
+        Analysis = new AnalysisQueue(engine, tracks, post, manualAnalysis);
 
-        DeckA = new DeckViewModel(engine.DeckA, engine);
-        DeckB = new DeckViewModel(engine.DeckB, engine);
+        DeckA = new DeckViewModel(engine.DeckA, engine, analysis: Analysis);
+        DeckB = new DeckViewModel(engine.DeckB, engine, analysis: Analysis);
+        DeckA.Other = DeckB;
+        DeckB.Other = DeckA;
+        DeckA.TrackPlayed += (_, t) => OnTrackPlayed(t);
+        DeckB.TrackPlayed += (_, t) => OnTrackPlayed(t);
         DeckA.PlaybackRefused += (_, why) => StatusMessage = why;
         DeckB.PlaybackRefused += (_, why) => StatusMessage = why;
 
@@ -43,12 +61,15 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
         DeckB.Shuffle = _settings.DeckBShuffle;
         DeckB.Repeat = _settings.DeckBRepeat;
 
-        _autoCue = new AutoCue(engine.DeckA, engine.DeckB, DequeueFor)
+        _autoCue = new AutoCue(engine.DeckA, engine.DeckB, DequeueFor, TimingFor)
         {
             Enabled = _settings.AutoCueEnabled,
             CrossfadeDuration = TimeSpan.FromSeconds(_settings.CrossfadeSeconds),
             CrossfaderPosition = _settings.CrossfaderPosition
         };
+        TempoMatch = _settings.AutoCueTempoMatch;
+        DeckA.UserChangedTempo += (_, _) => _autoCue.CancelGlide(DeckId.A);
+        DeckB.UserChangedTempo += (_, _) => _autoCue.CancelGlide(DeckId.B);
         _autoCue.CrossfaderMoved += (_, pos) =>
         {
             // The auto-cue owns the fader during a transition; echo it to the slider
@@ -61,6 +82,12 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
         _crossfaderPosition = _settings.CrossfaderPosition;
         _autoCueEnabled = _settings.AutoCueEnabled;
         _crossfadeSeconds = _settings.CrossfadeSeconds;
+        _analyseLibraryBpm = _settings.AnalyseLibraryBpm ?? !App.UsePhoneLayout;
+        Analysis.Analysed += (_, path) => { _timings.Remove(path); OnAnalysed(path); };
+        DeckA.BpmCorrected += (_, path) => { _timings.Remove(path); OnAnalysed(path); };
+        DeckB.BpmCorrected += (_, path) => { _timings.Remove(path); OnAnalysed(path); };
+        DeckA.CuesChanged += (_, path) => _timings.Remove(path);
+        DeckB.CuesChanged += (_, path) => _timings.Remove(path);
         _currentFolder = _settings.LastFolder ?? DefaultFolder();
         engine.ApplyCrossfader(_crossfaderPosition);
 
@@ -181,10 +208,10 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
     public ObservableCollection<FolderNode> Roots { get; } = [];
 
     /// <summary>Audio files found in the selected folder, filtered by the search box.</summary>
-    public ObservableCollection<Track> BrowserTracks { get; } = [];
+    public ObservableCollection<LibraryRow> BrowserRows { get; } = [];
 
     [ObservableProperty] private FolderNode? _selectedFolder;
-    [ObservableProperty] private Track? _selectedBrowserTrack;
+    [ObservableProperty] private LibraryRow? _selectedBrowserRow;
     [ObservableProperty] private string _searchText = string.Empty;
     [ObservableProperty] private string _currentFolder = string.Empty;
     [ObservableProperty] private string _statusMessage = "Ready";
@@ -193,6 +220,21 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
     [ObservableProperty] private string _clockText = string.Empty;
     [ObservableProperty] private float _crossfaderPosition;
     [ObservableProperty] private bool _autoCueEnabled;
+
+    [ObservableProperty] private TempoMatchMode _tempoMatch;
+
+    /// <summary>For the combo box, whose items are in enum order.</summary>
+    public int TempoMatchIndex
+    {
+        get => (int)TempoMatch;
+        set => TempoMatch = (TempoMatchMode)Math.Clamp(value, 0, 2);
+    }
+
+    partial void OnTempoMatchChanged(TempoMatchMode value)
+    {
+        _autoCue.TempoMatch = value;
+        OnPropertyChanged(nameof(TempoMatchIndex));
+    }
     [ObservableProperty] private int _crossfadeSeconds;
 
     public System.Collections.Generic.IReadOnlyList<CueMode> CueModes { get; } =
@@ -296,13 +338,37 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
 
     partial void OnSelectedFolderChanged(FolderNode? value)
     {
+        if (value is { IsRecentlyPlayed: true })
+            _ = ShowRecentlyPlayedAsync();
         // The "…" placeholder stands in for unexpanded children and is not a real
         // path; browsing it would fail with "could not find a part of the path".
-        if (value is { IsPlaceholder: false })
+        else if (value is { IsPlaceholder: false })
             _ = LoadFolderAsync(value.Path);
     }
 
     partial void OnSearchTextChanged(string value) => ApplyFilter();
+
+    /// <summary>Hot cue 1 beats the detected first sound as the place to bring a track in.</summary>
+    private TrackTiming? TimingFor(Track track)
+    {
+        // The auto-cue asks every tick; keep it off the disk (Get stats the file).
+        // Dropped whenever the analysis, a hot cue or the BPM correction changes.
+        if (_timings.TryGetValue(track.Path, out TrackTiming? cached)) return cached;
+        return _timings[track.Path] = ComputeTiming(track);
+    }
+
+    private readonly System.Collections.Generic.Dictionary<string, TrackTiming?> _timings = new();
+
+    private TrackTiming? ComputeTiming(Track track)
+    {
+        if (_tracks.Get(track.Path) is not { } info) return null;
+        return new TrackTiming(
+            Seconds(info.HotCueSeconds[0] ?? info.FirstSoundSeconds),
+            Seconds(info.LastSoundSeconds),
+            info.DisplayBpm);
+
+        static TimeSpan? Seconds(double? s) => s is { } v ? TimeSpan.FromSeconds(v) : null;
+    }
 
     private Track? DequeueFor(DeckId id) =>
         (id == DeckId.A ? DeckA : DeckB).DequeueNext();
@@ -335,6 +401,7 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
     public void LoadRoots()
     {
         Roots.Clear();
+        Roots.Add(FolderNode.RecentlyPlayed());
         if (PlatformRoots is not null)
         {
             foreach (StorageRoot root in PlatformRoots().Where(r => Directory.Exists(r.Path)).DistinctBy(r => r.Path))
@@ -368,7 +435,54 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
         if (!string.IsNullOrWhiteSpace(path)) await LoadFolderAsync(path);
     }
 
-    private readonly System.Collections.Generic.List<Track> _folderTracks = [];
+    private readonly System.Collections.Generic.List<LibraryRow> _folderRows = [];
+
+    private LibraryRow RowFor(Track t)
+    {
+        bool played;
+        lock (_sessionPlayed) played = _sessionPlayed.Contains(t.Path);
+        return new LibraryRow(t) { Bpm = _tracks.Get(t.Path)?.DisplayBpm, IsPlayed = played };
+    }
+
+    public const int RecentlyPlayedLimit = 100;
+
+    /// <summary>Paths played since the app started, for the library's tick.</summary>
+    private readonly System.Collections.Generic.HashSet<string> _sessionPlayed = [];
+
+    private void OnTrackPlayed(Track track)
+    {
+        _tracks.MarkPlayed(track.Path, DateTime.UtcNow);
+        lock (_sessionPlayed) _sessionPlayed.Add(track.Path);
+        foreach (LibraryRow row in _folderRows.Where(r => r.Track.Path == track.Path))
+            row.IsPlayed = true;
+    }
+
+    /// <summary>Lists the most recently played tracks that still exist, newest first.</summary>
+    public async Task ShowRecentlyPlayedAsync()
+    {
+        _scan?.Cancel();
+        _scan = new CancellationTokenSource();
+        CancellationToken ct = _scan.Token;
+        try
+        {
+            var rows = await Task.Run(() => _tracks.RecentlyPlayed(RecentlyPlayedLimit)
+                .Where(File.Exists)
+                .Select(path => { ct.ThrowIfCancellationRequested(); return RowFor(TrackMetadataReader.Read(path)); })
+                .ToList(), ct);
+            SetFolderRows(rows);
+            StatusMessage = $"{rows.Count} recently played track(s)";
+        }
+        catch (OperationCanceledException) { /* superseded by a newer selection */ }
+    }
+
+    /// <summary>Replaces what the library lists. Later tasks hook background analysis in here.</summary>
+    private void SetFolderRows(System.Collections.Generic.IEnumerable<LibraryRow> rows)
+    {
+        _folderRows.Clear();
+        _folderRows.AddRange(rows);
+        ApplyFilter();
+        QueueLibraryAnalysis();
+    }
 
     /// <summary>Lists one folder's audio files, reading tags off the UI thread.</summary>
     private async Task LoadFolderAsync(string path)
@@ -380,24 +494,22 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
         CurrentFolder = path;
         IsScanning = true;
         StatusMessage = $"Reading {path}…";
-        _folderTracks.Clear();
-        BrowserTracks.Clear();
+        SetFolderRows([]);
 
         try
         {
             var found = await Task.Run(() =>
             {
-                var list = new System.Collections.Generic.List<Track>();
+                var list = new System.Collections.Generic.List<LibraryRow>();
                 foreach (string file in Directory.EnumerateFiles(path).Where(SupportedFormats.IsAudio))
                 {
                     ct.ThrowIfCancellationRequested();
-                    list.Add(TrackMetadataReader.Read(file));
+                    list.Add(RowFor(TrackMetadataReader.Read(file)));
                 }
                 return list;
             }, ct);
 
-            _folderTracks.AddRange(found);
-            ApplyFilter();
+            SetFolderRows(found);
             StatusMessage = $"{found.Count} track(s) in {Path.GetFileName(path)}";
         }
         catch (OperationCanceledException) { /* superseded by a newer selection */ }
@@ -418,8 +530,7 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
 
         IsScanning = true;
         StatusMessage = $"Searching {CurrentFolder}…";
-        BrowserTracks.Clear();
-        _folderTracks.Clear();
+        SetFolderRows([]);
         string needle = SearchText;
 
         try
@@ -428,12 +539,13 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
             {
                 if (!Path.GetFileName(file).Contains(needle, StringComparison.OrdinalIgnoreCase))
                     continue;
-                Track t = await Task.Run(() => TrackMetadataReader.Read(file), ct);
-                _folderTracks.Add(t);
-                BrowserTracks.Add(t);
-                StatusMessage = $"{BrowserTracks.Count} match(es)…";
+                LibraryRow row = RowFor(await Task.Run(() => TrackMetadataReader.Read(file), ct));
+                _folderRows.Add(row);
+                if (InBpmRange(row.Bpm)) BrowserRows.Add(row);
+                StatusMessage = $"{BrowserRows.Count} match(es)…";
             }
-            StatusMessage = $"{BrowserTracks.Count} match(es) for \"{needle}\"";
+            QueueLibraryAnalysis();
+            StatusMessage = $"{BrowserRows.Count} match(es) for \"{needle}\"";
         }
         catch (OperationCanceledException) { StatusMessage = "Search cancelled"; }
         finally { IsScanning = false; }
@@ -444,14 +556,76 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
 
     private void ApplyFilter()
     {
-        BrowserTracks.Clear();
-        foreach (Track t in _folderTracks.Where(Matches))
-            BrowserTracks.Add(t);
+        BrowserRows.Clear();
+        foreach (LibraryRow row in _folderRows.Where(Matches))
+            BrowserRows.Add(row);
     }
 
-    private bool Matches(Track t) =>
-        string.IsNullOrWhiteSpace(SearchText) ||
-        t.Display.Contains(SearchText, StringComparison.OrdinalIgnoreCase);
+    private bool Matches(LibraryRow row) =>
+        InBpmRange(row.Bpm) &&
+        (string.IsNullOrWhiteSpace(SearchText) ||
+         row.Track.Display.Contains(SearchText, StringComparison.OrdinalIgnoreCase) ||
+         // Deep search matches file names, so a filter re-test must too.
+         Path.GetFileName(row.Track.Path).Contains(SearchText, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>The ≈ button's window around the audible deck's BPM.</summary>
+    public const double MatchBpmRange = 0.06;
+
+    [ObservableProperty] private decimal? _bpmMin;
+    [ObservableProperty] private decimal? _bpmMax;
+
+    /// <summary>Analyse every track in an opened folder, lowest priority. Costs battery on phones.</summary>
+    [ObservableProperty] private bool _analyseLibraryBpm;
+
+    partial void OnBpmMinChanged(decimal? value) => ApplyFilter();
+    partial void OnBpmMaxChanged(decimal? value) => ApplyFilter();
+    partial void OnAnalyseLibraryBpmChanged(bool value) => QueueLibraryAnalysis();
+
+    private void QueueLibraryAnalysis() =>
+        Analysis.QueueFolder(AnalyseLibraryBpm ? _folderRows.Select(r => r.Track) : []);
+
+    private bool InBpmRange(double? bpm)
+    {
+        if (BpmMin is null && BpmMax is null) return true;
+        if (bpm is null) return false;
+        double lo = BpmMin is { } min ? (double)min : 0;
+        double hi = BpmMax is { } max ? (double)max : double.MaxValue;
+        if (lo > hi) (lo, hi) = (hi, lo);
+        return bpm >= lo && bpm <= hi;
+    }
+
+    /// <summary>The deck the room is hearing: the playing one in front on the crossfader.</summary>
+    private DeckViewModel AudibleDeck()
+    {
+        DeckViewModel front = CrossfaderPosition <= Crossfader.Centre ? DeckA : DeckB;
+        DeckViewModel back = ReferenceEquals(front, DeckA) ? DeckB : DeckA;
+        return !front.IsPlaying && back.IsPlaying ? back : front;
+    }
+
+    /// <summary>Filters the library to what will mix with the audible deck.</summary>
+    [RelayCommand]
+    private void MatchBpm()
+    {
+        if (AudibleDeck().HeardBpm is not { } bpm)
+        {
+            StatusMessage = "No BPM to match: the playing deck's BPM isn't known yet";
+            return;
+        }
+        BpmMin = Math.Round((decimal)(bpm * (1 - MatchBpmRange)), 1);
+        BpmMax = Math.Round((decimal)(bpm * (1 + MatchBpmRange)), 1);
+    }
+
+    private void OnAnalysed(string path)
+    {
+        double? bpm = _tracks.Get(path)?.DisplayBpm;
+        foreach (LibraryRow row in _folderRows.Where(r => r.Track.Path == path))
+        {
+            row.Bpm = bpm;
+            // Add a newly matching row without rebuilding the list, so the
+            // selection survives a background folder scan.
+            if (Matches(row) && !BrowserRows.Contains(row)) BrowserRows.Add(row);
+        }
+    }
 
     [RelayCommand]
     private void AddToDeckA() => AddToDeck(DeckA);
@@ -461,7 +635,7 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
 
     private void AddToDeck(DeckViewModel deck)
     {
-        if (SelectedBrowserTrack is { } t) deck.Playlist.Add(t);
+        if (SelectedBrowserRow is { } row) deck.Playlist.Add(row.Track);
     }
 
     [RelayCommand]
@@ -530,6 +704,7 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
         _settings.LastFolder = CurrentFolder;
         _settings.CrossfadeSeconds = CrossfadeSeconds;
         _settings.AutoCueEnabled = AutoCueEnabled;
+        _settings.AutoCueTempoMatch = TempoMatch;
         _settings.CrossfaderPosition = CrossfaderPosition;
         _settings.DeckAShuffle = DeckA.Shuffle;
         _settings.DeckARepeat = DeckA.Repeat;
@@ -538,8 +713,10 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
         _settings.CueMode = CueMode;
         _settings.CueDevice = CueDevice;
         _settings.CueMix = CueMix;
+        _settings.AnalyseLibraryBpm = AnalyseLibraryBpm;
         _settingsStore.Save(_settings);
         SavePlaylists();
+        _tracks.Flush();
     }
 
     public double SavedWidth => _settings.WindowWidth;
@@ -549,6 +726,8 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
     {
         _timer?.Stop();
         _scan?.Cancel();
+        Analysis.Dispose();
+        _tracks.Dispose();
         _engine.Dispose();
     }
 }

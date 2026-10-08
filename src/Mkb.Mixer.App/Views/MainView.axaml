@@ -16,7 +16,7 @@
 
     <!-- Mixer: crossfader plus auto-cue -->
     <Border Grid.Row="1" Classes="panel" Margin="0,10,0,0">
-      <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto,Auto">
+      <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto,Auto,Auto,Auto">
         <TextBlock Classes="heading" Text="A" VerticalAlignment="Center" />
         <Slider Grid.Column="1" Minimum="0" Maximum="1" Margin="12,0"
                 Value="{Binding CrossfaderPosition}"
@@ -34,11 +34,20 @@
                        Value="{Binding CrossfadeSeconds}"
                        ToolTip.Tip="How long before the end the fade starts, and how long it lasts." />
 
-        <TextBlock Grid.Column="6" Classes="time" Margin="20,0,0,0"
+        <TextBlock Grid.Column="6" Classes="dim" Text="match tempo" VerticalAlignment="Center"
+                   Margin="16,0,6,0" />
+        <ComboBox Grid.Column="7" SelectedIndex="{Binding TempoMatchIndex}" MinWidth="130"
+                  ToolTip.Tip="Off: each track plays at its own speed. Match: the incoming track is sped up or slowed to the outgoing one's BPM, if they are within 8%. Match + glide: then it eases back to normal speed over 8 seconds.">
+          <ComboBoxItem>off</ComboBoxItem>
+          <ComboBoxItem>match</ComboBoxItem>
+          <ComboBoxItem>match + glide</ComboBoxItem>
+        </ComboBox>
+
+        <TextBlock Grid.Column="8" Classes="time" Margin="20,0,0,0"
                    Text="{Binding ClockText}" VerticalAlignment="Center" />
 
         <!-- Headphone cue -->
-        <StackPanel Grid.Row="1" Grid.ColumnSpan="7" Orientation="Horizontal"
+        <StackPanel Grid.Row="1" Grid.ColumnSpan="9" Orientation="Horizontal"
                     Spacing="8" Margin="0,8,0,0">
           <TextBlock Classes="dim" Text="headphones" VerticalAlignment="Center" />
           <ComboBox ItemsSource="{Binding CueModes}" SelectedItem="{Binding CueMode}" MinWidth="110"
@@ -57,7 +66,7 @@
     <!-- Library browser -->
     <Border Grid.Row="2" Classes="panel" Margin="0,10,0,0">
       <Grid RowDefinitions="Auto,*">
-        <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto">
+        <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto,Auto,Auto">
           <TextBlock Classes="heading" Text="LIBRARY" VerticalAlignment="Center" />
           <TextBox Grid.Column="1" Margin="16,0" Watermark="Search this folder and below…"
                    Text="{Binding SearchText}" />
@@ -65,9 +74,23 @@
           <Button Grid.Column="3" Content="Stop" Margin="6,0,0,0"
                   Command="{Binding CancelScanCommand}"
                   IsEnabled="{Binding IsScanning}" />
-          <Button Grid.Column="4" Content="Save playlists" Margin="16,0,0,0"
+          <StackPanel Grid.Column="4" Orientation="Horizontal" Spacing="4" Margin="16,0,0,0"
+                      VerticalAlignment="Center">
+            <TextBlock Classes="dim" Text="BPM" VerticalAlignment="Center" />
+            <NumericUpDown Classes="bpmfilter" Value="{Binding BpmMin}" PlaceholderText="from"
+                           ToolTip.Tip="Lowest BPM to list. Leave both empty to list everything." />
+            <TextBlock Classes="dim" Text="–" VerticalAlignment="Center" />
+            <NumericUpDown Classes="bpmfilter" Value="{Binding BpmMax}" PlaceholderText="to"
+                           ToolTip.Tip="Highest BPM to list" />
+            <Button Classes="tiny" Content="≈" Command="{Binding MatchBpmCommand}"
+                    ToolTip.Tip="List tracks within 6% of the playing deck's BPM" />
+          </StackPanel>
+          <CheckBox Grid.Column="5" Content="analyse BPM" Margin="12,0,0,0"
+                    IsChecked="{Binding AnalyseLibraryBpm}"
+                    ToolTip.Tip="Work out the BPM of every track in an opened folder, in the background" />
+          <Button Grid.Column="6" Content="Save playlists" Margin="16,0,0,0"
                   Command="{Binding SavePlaylistsCommand}" />
-          <Button Grid.Column="5" Content="Load playlists" Margin="6,0,0,0"
+          <Button Grid.Column="7" Content="Load playlists" Margin="6,0,0,0"
                   Command="{Binding LoadPlaylistsCommand}" />
         </Grid>
 
@@ -91,15 +114,24 @@
 
           <!-- Tracks in the selected folder -->
           <Grid Grid.Column="2" RowDefinitions="*,Auto">
-            <DataGrid ItemsSource="{Binding BrowserTracks}"
-                      SelectedItem="{Binding SelectedBrowserTrack}"
+            <DataGrid ItemsSource="{Binding BrowserRows}"
+                      SelectedItem="{Binding SelectedBrowserRow}"
                       IsReadOnly="True" GridLinesVisibility="Horizontal"
-                      HeadersVisibility="Column">
+                      HeadersVisibility="Column" CanUserSortColumns="True">
+              <DataGrid.Styles>
+                <Style Selector="DataGridRow" x:DataType="vm:LibraryRow">
+                  <Setter Property="Opacity" Value="{Binding RowOpacity}" />
+                </Style>
+              </DataGrid.Styles>
               <DataGrid.Columns>
-                <DataGridTextColumn Header="Title" Binding="{Binding Title}" Width="*" />
-                <DataGridTextColumn Header="Artist" Binding="{Binding Artist}" Width="200" />
-                <DataGridTextColumn Header="Album" Binding="{Binding Album}" Width="180" />
-                <DataGridTextColumn Header="Time" Binding="{Binding DurationText}" Width="80" />
+                <DataGridTextColumn Header="✓" x:DataType="vm:LibraryRow" Binding="{Binding PlayedMark}" Width="34" />
+                <DataGridTextColumn Header="Title" x:DataType="vm:LibraryRow" Binding="{Binding Track.Title}" Width="*" />
+                <DataGridTextColumn Header="Artist" x:DataType="vm:LibraryRow" Binding="{Binding Track.Artist}" Width="180" />
+                <DataGridTextColumn Header="Album" x:DataType="vm:LibraryRow" Binding="{Binding Track.Album}" Width="160" />
+                <DataGridTextColumn Header="BPM" x:DataType="vm:LibraryRow" Binding="{Binding BpmText}"
+                                    SortMemberPath="BpmSortKey" Width="70" />
+                <DataGridTextColumn Header="Time" x:DataType="vm:LibraryRow" Binding="{Binding Track.DurationText}"
+                                    SortMemberPath="Track.Duration" Width="70" />
               </DataGrid.Columns>
             </DataGrid>
 

@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
@@ -29,12 +30,22 @@ public sealed class WaveformView : Control
         AvaloniaProperty.Register<WaveformView, IBrush>(
             nameof(UnplayedBrush), new SolidColorBrush(Color.FromRgb(0x50, 0x55, 0x60)));
 
+    /// <summary>Hot cue positions as 0..1 of the track, one per slot, null where a slot is empty.</summary>
+    public static readonly StyledProperty<double?[]?> CueFractionsProperty =
+        AvaloniaProperty.Register<WaveformView, double?[]?>(nameof(CueFractions));
+
+    public double?[]? CueFractions
+    {
+        get => GetValue(CueFractionsProperty);
+        set => SetValue(CueFractionsProperty, value);
+    }
+
     /// <summary>Raised with a 0..1 fraction when the user clicks or drags on the waveform.</summary>
     public event EventHandler<double>? Seeked;
 
     static WaveformView()
     {
-        AffectsRender<WaveformView>(WaveformProperty, ProgressProperty, PlayedBrushProperty, UnplayedBrushProperty);
+        AffectsRender<WaveformView>(WaveformProperty, ProgressProperty, PlayedBrushProperty, UnplayedBrushProperty, CueFractionsProperty);
     }
 
     public Waveform? Waveform
@@ -126,5 +137,18 @@ public sealed class WaveformView : Control
             new Pen(Brushes.White, 1.5),
             new Point(playedX, 0),
             new Point(playedX, bounds.Height));
+
+        if (CueFractions is not { } cues) return;
+        for (int i = 0; i < cues.Length; i++)
+        {
+            if (cues[i] is not { } fraction) continue;
+            IBrush brush = HotCuePalette.Brush(i);
+            double x = Math.Round(bounds.Width * fraction) + 0.5;
+            context.DrawLine(new Pen(brush, 2), new Point(x, 0), new Point(x, bounds.Height));
+            var label = new FormattedText((i + 1).ToString(CultureInfo.InvariantCulture),
+                CultureInfo.InvariantCulture, FlowDirection.LeftToRight, Typeface.Default, 10, Brushes.Black);
+            context.FillRectangle(brush, new Rect(x, 0, label.Width + 4, label.Height));
+            context.DrawText(label, new Point(x + 2, 0));
+        }
     }
 }

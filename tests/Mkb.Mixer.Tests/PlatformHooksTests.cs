@@ -61,7 +61,7 @@ public class PlatformHooksTests : IDisposable
 
         vm.LoadRoots();
 
-        var root = Assert.Single(vm.Roots);
+        var root = Assert.Single(vm.Roots.Where(r => !r.IsRecentlyPlayed));
         Assert.Equal(_card, root.Path);
         Assert.Equal("SanDisk SD card", root.Name);
     }

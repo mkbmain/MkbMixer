@@ -6,7 +6,7 @@
              x:Class="Mkb.Mixer.App.Views.DeckView"
              x:DataType="vm:DeckViewModel">
   <Border Classes="panel">
-    <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,*">
+    <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,*">
 
       <!-- Deck name, shuffle/repeat/cue toggles and the live/mute indicator -->
       <Grid Grid.Row="0" ColumnDefinitions="*,Auto,Auto,Auto,Auto">
@@ -34,7 +34,8 @@
       <!-- Waveform: click or drag anywhere to seek -->
       <ctrl:WaveformView Grid.Row="2" Name="Wave" Classes="deck"
                          Waveform="{Binding Waveform}"
-                         Progress="{Binding Progress}" />
+                         Progress="{Binding Progress}"
+                         CueFractions="{Binding CueFractions}" />
 
       <Grid Classes="times" ColumnDefinitions="Auto,*,Auto">
         <TextBlock Classes="time" Text="{Binding Elapsed}" />
@@ -59,9 +60,44 @@
                 ToolTip.Tip="Playback speed. Pitch is preserved. Double-tap to reset." />
       </Grid>
 
+      <!-- BPM, sync, nudge and hot cues. The phone puts the cues on a line of their own. -->
+      <Grid Grid.Row="5" Classes="bpmrow" ColumnDefinitions="Auto,Auto,Auto,Auto,*,Auto" RowDefinitions="Auto,Auto">
+        <Button Classes="bpm" Content="{Binding BpmText}"
+                ToolTip.Tip="BPM at the current tempo. Tap to correct a track detected at half or double speed.">
+          <Button.Flyout>
+            <MenuFlyout>
+              <MenuItem Header="×½   it's half this" Command="{Binding HalveBpmCommand}" />
+              <MenuItem Header="×2   it's double this" Command="{Binding DoubleBpmCommand}" />
+            </MenuFlyout>
+          </Button.Flyout>
+        </Button>
+        <Button Grid.Column="1" Classes="tiny" Content="SYNC" Margin="6,0,0,0"
+                Command="{Binding SyncCommand}"
+                ToolTip.Tip="{Binding SyncHint}" ToolTip.ShowOnDisabled="True" />
+        <Button Grid.Column="2" Name="NudgeDown" Classes="tiny nudge" Content="‹" Margin="6,0,0,0"
+                ToolTip.Tip="Hold to slow down 4%, to line the beats up by ear" />
+        <Button Grid.Column="3" Name="NudgeUp" Classes="tiny nudge" Content="›" Margin="4,0,0,0"
+                ToolTip.Tip="Hold to speed up 4%, to line the beats up by ear" />
+        <ItemsControl Classes="hotcues" ItemsSource="{Binding HotCues}">
+          <ItemsControl.ItemsPanel>
+            <ItemsPanelTemplate>
+              <StackPanel Orientation="Horizontal" Spacing="4" />
+            </ItemsPanelTemplate>
+          </ItemsControl.ItemsPanel>
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:HotCueSlot">
+              <Button Classes="hotcue" Classes.set="{Binding IsSet}" Content="{Binding Label}"
+                      BorderBrush="{Binding Index, Converter={StaticResource HotCueBrush}}"
+                      Click="OnHotCueClick" ContextRequested="OnHotCueContextRequested"
+                      ToolTip.Tip="Tap to set this cue, or jump to it once set. Long-press or right-click to clear it." />
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </Grid>
+
       <!-- Playlist for this deck. The phone layout hides it here and shows it on
            its own tab instead. -->
-      <views:PlaylistView Grid.Row="5" Classes="deckplaylist" Margin="0,12,0,0" />
+      <views:PlaylistView Grid.Row="6" Classes="deckplaylist" Margin="0,12,0,0" />
     </Grid>
   </Border>
 </UserControl>

@@ -97,6 +97,58 @@ track back on the end of the queue so it never runs dry. Both are per deck and
 apply to the auto-cue as well as to a track simply ending. With both on, the same
 song is never picked twice in a row.
 
+## Library
+
+Tap a column header to sort; Time and BPM sort by value. A ✓ marks tracks already
+played this session, and **★ Recently played** at the top of the folder tree lists
+the last 100 tracks played, newest first. A track counts as played after 30
+seconds, or when it ends.
+
+With **analyse BPM** on, opening a folder works out each track's BPM in the
+background, one track at a time, and the column fills in as it goes. Results are
+kept, so each file is only analysed once unless it changes. It is on by default on
+desktops and tablets and off on phones, where it costs battery the first time a big
+folder is opened.
+
+**BPM [ ]–[ ]** lists only tracks in that range; **≈** fills it with the playing
+deck's BPM ±6%, which is roughly what will mix with it.
+
+## BPM and sync
+
+Each deck shows its track's BPM at the current tempo. BPM detection folds results
+into 87.5–175, so a 75 BPM track reads as 150: tap the BPM to correct it with ×½ or
+×2, and the correction is kept for that track.
+
+**SYNC** sets this deck's tempo so it plays at the other deck's BPM. It matches
+speed, not beat position: hold **‹** or **›** to slow down or speed up by 4% while
+lining the beats up by ear.
+
+## Hot cues
+
+**1–4** on each deck: tap an empty one to mark the playhead, tap a set one to jump
+there (playing stays playing; stopped stays stopped at the cue). Long-press, or
+right-click with a mouse, to clear one. Cues show on the waveform and are kept per
+track.
+
+## Smart auto-cue
+
+The fade is timed to finish at the outgoing track's last real sound rather than the
+end of the file, so trailing silence and long near-silent fade-outs are skipped.
+The incoming track starts at hot cue 1 if it has one, otherwise at its first sound.
+Each deck's next track is picked and analysed ahead of time so this information is
+ready when the fade begins.
+
+**match tempo** under the crossfader decides what happens to speed:
+
+| Mode | What it does |
+|---|---|
+| **off** | Each track plays at its own speed. |
+| **match** | The incoming track is sped up or slowed to the outgoing track's BPM, and stays there. |
+| **match + glide** | As match, then eases back to normal speed over 8 seconds once the fade is done. |
+
+Matching only happens when both BPMs are known and within 8% of each other;
+otherwise that transition plays both at their own speed.
+
 ## If playback is silent
 
 The status bar's bottom-right corner always shows the audio route in use, for
@@ -203,9 +255,15 @@ audio library is swappable and the logic is testable without an audio device.
 - Headphone cue, in Split (one output and a splitter) or second-device mode.
 - Per-deck shuffle and repeat.
 - Android media controls, and pausing for calls, other music apps and lost outputs.
+- BPM detection, SYNC and nudge; hot cues; play history and a BPM filter in the library.
+- An auto-cue that fades on real sound and can match tempo across the transition.
 
 ## Known limitations
 
+- **SYNC matches tempo, not beat position.** Beat positions are detected and stored,
+  ready for phase sync, but nothing uses them yet; line beats up with the nudge buttons.
+- **BPM detection folds into 87.5–175.** Slower or faster tracks read at double or
+  half; correct them once with ×½ or ×2.
 - **WMA only decodes on Windows.** It is a Microsoft codec with no cross-platform
   decoder in this stack. The original supported `.mp3`, `.wma` and `.wav`.
 - **Tempo always preserves pitch.** SoundFlow routes `PlaybackSpeed` through WSOLA

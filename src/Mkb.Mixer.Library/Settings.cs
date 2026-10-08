@@ -9,6 +9,7 @@ public sealed class AppSettings
     public string? LastFolder { get; set; }
     public int CrossfadeSeconds { get; set; } = 20;
     public bool AutoCueEnabled { get; set; }
+    public TempoMatchMode AutoCueTempoMatch { get; set; }
     public float CrossfaderPosition { get; set; } = 0.5f;
     public double WindowWidth { get; set; } = 1280;
     public double WindowHeight { get; set; } = 800;
@@ -19,6 +20,9 @@ public sealed class AppSettings
     public CueMode CueMode { get; set; } = CueMode.Off;
     public string? CueDevice { get; set; }
     public float CueMix { get; set; }
+
+    /// <summary>Analyse library folders for BPM in the background. Null: on, except on phones.</summary>
+    public bool? AnalyseLibraryBpm { get; set; }
 }
 
 /// <summary>Persists <see cref="AppSettings"/> as JSON, defaulting rather than throwing.</summary>

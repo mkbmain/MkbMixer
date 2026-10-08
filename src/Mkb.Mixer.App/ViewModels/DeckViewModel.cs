@@ -1,12 +1,16 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Globalization;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Mkb.Mixer.App.Services;
 using Mkb.Mixer.Audio;
+using Mkb.Mixer.Library;
 
 namespace Mkb.Mixer.App.ViewModels;
 
@@ -16,18 +20,170 @@ public sealed partial class DeckViewModel : ViewModelBase
     private readonly IDeck _deck;
     private readonly IAudioEngine _engine;
     private readonly Random _random;
-    private CancellationTokenSource? _analysis;
+    private readonly AnalysisQueue _analysis;
+    private CancellationTokenSource? _analysisCts;
+    private Track? _currentTrack;
     private Track? _lastDequeued;
+    private Track? _nextUp;
+    private bool _dequeuing;
 
     /// <param name="random">Injectable so tests can make shuffle deterministic.</param>
-    public DeckViewModel(IDeck deck, IAudioEngine engine, Random? random = null)
+    /// <param name="analysis">Shared with the other deck and the library; a private in-memory one when omitted.</param>
+    public DeckViewModel(IDeck deck, IAudioEngine engine, Random? random = null, AnalysisQueue? analysis = null)
     {
         _deck = deck;
         _engine = engine;
         _random = random ?? Random.Shared;
+        _analysis = analysis ?? new AnalysisQueue(engine, TrackStore.InMemory(), manual: true);
+        _analysis.Analysed += (_, path) =>
+        {
+            if (_deck.Track?.Path == path) ApplyStoredInfo();
+        };
+        Playlist.CollectionChanged += (_, _) =>
+        {
+            if (!_dequeuing) PrefetchNext();
+        };
         // SoundFlow raises this from its audio callback thread, so it has to be
         // marshalled before it touches anything bound to the UI.
-        _deck.TrackEnded += (_, _) => Dispatcher.UIThread.Post(PlayNextFromPlaylist);
+        _deck.TrackEnded += (_, _) => Dispatcher.UIThread.Post(() =>
+        {
+            ReportPlayed();
+            PlayNextFromPlaylist();
+        });
+    }
+
+    public const double NudgeAmount = 0.04;
+    private double? _nudgeFrom;
+    private string _syncHint = string.Empty;
+
+    /// <summary>The track's BPM at normal speed, after any x1/2 or x2 correction.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HeardBpm), nameof(BpmText))]
+    [NotifyCanExecuteChangedFor(nameof(SyncCommand))]
+    private double? _trackBpm;
+
+    /// <summary>The BPM coming out of the speakers: the track's BPM times the tempo.</summary>
+    public double? HeardBpm => TrackBpm * Tempo;
+
+    public string BpmText => HeardBpm is { } b ? $"{b.ToString("0.0", CultureInfo.InvariantCulture)} BPM" : "— BPM";
+
+    /// <summary>The other deck, for SYNC. Set once by <see cref="MainViewModel"/>.</summary>
+    public DeckViewModel? Other { get; set; }
+
+    public bool HasTrack => _deck.Track is not null;
+
+    /// <summary>Why SYNC is unavailable, or what it does when it is.</summary>
+    public string SyncHint => SyncBlocker ?? "Match this deck's tempo to the other deck";
+
+    private string? SyncBlocker =>
+        TrackBpm is null ? "This deck's BPM isn't known yet"
+        : Other is not { HasTrack: true } ? "Nothing is loaded on the other deck"
+        : Other.HeardBpm is null ? "The other deck's BPM isn't known yet"
+        : null;
+
+    private bool CanSync() => SyncBlocker is null;
+
+    /// <summary>One-shot: sets this deck's tempo so it plays at the other deck's BPM.</summary>
+    [RelayCommand(CanExecute = nameof(CanSync))]
+    private void Sync()
+    {
+        if (TrackBpm is not { } mine || Other?.HeardBpm is not { } theirs) return;
+        Tempo = Math.Clamp(theirs / mine, 0.5, 1.5);
+    }
+
+    [RelayCommand]
+    private void HalveBpm() => ScaleBpm(0.5);
+
+    [RelayCommand]
+    private void DoubleBpm() => ScaleBpm(2);
+
+    /// <summary>Raised with the track's path after its BPM is halved or doubled, so the library can refresh.</summary>
+    public event EventHandler<string>? BpmCorrected;
+
+    /// <summary>Raised with the track's path after a hot cue is set or cleared.</summary>
+    public event EventHandler<string>? CuesChanged;
+
+    private void ScaleBpm(double factor)
+    {
+        if (_deck.Track is not { } t || TrackBpm is null) return;
+        _analysis.Store.Update(t.Path, i => i with { BpmMultiplier = Math.Clamp(i.BpmMultiplier * factor, 0.25, 4) });
+        ApplyStoredInfo();
+        BpmCorrected?.Invoke(this, t.Path);
+    }
+
+    /// <summary>Holding a nudge button briefly speeds up or slows down, to line beats up by ear.</summary>
+    public void BeginNudge(int direction)
+    {
+        if (_nudgeFrom is not null) return;
+        _nudgeFrom = Tempo;
+        Tempo = Math.Clamp(Tempo * (1 + NudgeAmount * Math.Sign(direction)), 0.5, 1.5);
+    }
+
+    public void EndNudge()
+    {
+        if (_nudgeFrom is not { } from) return;
+        _nudgeFrom = null;
+        Tempo = from;
+    }
+
+    /// <summary>Pulls what the store knows about the loaded track onto the deck.</summary>
+    private void ApplyStoredInfo()
+    {
+        TrackInfo? info = _deck.Track is { } t ? _analysis.Store.Get(t.Path) : null;
+        TrackBpm = info?.DisplayBpm;
+        foreach (HotCueSlot slot in HotCues)
+            slot.Seconds = info?.HotCueSeconds[slot.Index];
+        UpdateCueFractions();
+    }
+
+    public IReadOnlyList<HotCueSlot> HotCues { get; } =
+        Enumerable.Range(0, TrackInfo.HotCueCount).Select(i => new HotCueSlot(i)).ToArray();
+
+    /// <summary>Each slot's position as 0..1 of the track, for the waveform markers.</summary>
+    public double?[] CueFractions { get; private set; } = new double?[TrackInfo.HotCueCount];
+
+    private TimeSpan _cueFractionsDuration;
+
+    /// <summary>Sets an empty slot at the playhead, or jumps to a set one keeping play/stop as it is.</summary>
+    [RelayCommand]
+    private void HotCue(HotCueSlot slot)
+    {
+        if (_deck.Track is not { } t) return;
+        if (slot.Seconds is { } seconds)
+        {
+            _deck.Seek(TimeSpan.FromSeconds(seconds));
+            Refresh();
+            return;
+        }
+        slot.Seconds = _deck.Position.TotalSeconds;
+        SaveHotCue(t, slot);
+    }
+
+    [RelayCommand]
+    private void ClearHotCue(HotCueSlot slot)
+    {
+        if (_deck.Track is not { } t || !slot.IsSet) return;
+        slot.Seconds = null;
+        SaveHotCue(t, slot);
+    }
+
+    private void SaveHotCue(Track track, HotCueSlot slot)
+    {
+        _analysis.Store.Update(track.Path, i => i.WithHotCue(slot.Index, slot.Seconds));
+        UpdateCueFractions();
+        CuesChanged?.Invoke(this, track.Path);
+    }
+
+    private void UpdateCueFractions()
+    {
+        TimeSpan duration = _deck.Duration;
+        _cueFractionsDuration = duration;
+        CueFractions = HotCues
+            .Select(c => c.Seconds is { } s && duration > TimeSpan.Zero
+                ? Math.Clamp(s / duration.TotalSeconds, 0, 1)
+                : (double?)null)
+            .ToArray();
+        OnPropertyChanged(nameof(CueFractions));
     }
 
     public DeckId Id => _deck.Id;
@@ -69,10 +225,21 @@ public sealed partial class DeckViewModel : ViewModelBase
     /// <summary>The tempo as a multiplier, which doubles as the button that resets it.</summary>
     public string TempoLabel => $"{Tempo:0.00}×";
 
+    /// <summary>Raised when the user, not the auto-cue, changes this deck's tempo.</summary>
+    public event EventHandler? UserChangedTempo;
+
+    private bool _echoingTempo;
+
     partial void OnTempoChanged(double value)
     {
-        _deck.Tempo = (float)value;
+        if (!_echoingTempo)
+        {
+            _deck.Tempo = (float)value;
+            UserChangedTempo?.Invoke(this, EventArgs.Empty);
+        }
         OnPropertyChanged(nameof(TempoLabel));
+        OnPropertyChanged(nameof(HeardBpm));
+        OnPropertyChanged(nameof(BpmText));
     }
 
     /// <summary>Back to normal speed, since dragging the slider to dead centre on touch is fiddly.</summary>
@@ -81,21 +248,39 @@ public sealed partial class DeckViewModel : ViewModelBase
 
     partial void OnIsCuedChanged(bool value) => _deck.IsCued = value;
 
-    /// <summary>Loads a track and kicks off waveform analysis in the background.</summary>
+    /// <summary>Loads a track and kicks off its analysis in the background.</summary>
     public async Task LoadAsync(Track track)
     {
         _deck.Load(track);
-        NowPlaying = track.Display;
-        Waveform = Waveform.Empty;
-        Refresh();
+        await OnTrackChangedAsync();
+    }
 
-        _analysis?.Cancel();
-        _analysis = new CancellationTokenSource();
-        CancellationToken ct = _analysis.Token;
+    /// <summary>
+    /// Catches up with whatever the deck now holds, whether this view model loaded
+    /// it or the auto-cue did on the <see cref="IDeck"/> directly. Before this, a
+    /// track brought in by the auto-cue kept the previous track's waveform.
+    /// </summary>
+    private async Task OnTrackChangedAsync()
+    {
+        Track? track = _deck.Track;
+        _currentTrack = track;
+        _playedReported = false;
+        Waveform = Waveform.Empty;
+        ApplyStoredInfo();
+        Refresh();
+        if (track is null) return;
+
+        _analysisCts?.Cancel();
+        _analysisCts = new CancellationTokenSource();
+        CancellationToken ct = _analysisCts.Token;
         try
         {
-            Waveform wave = await _engine.AnalyseAsync(track.Path, ct);
-            if (!ct.IsCancellationRequested) Waveform = wave;
+            TrackAnalysis analysis = await _analysis.AnalyseForDeckAsync(track, ct);
+            if (!ct.IsCancellationRequested)
+            {
+                Waveform = analysis.Waveform;
+                ApplyStoredInfo();
+            }
         }
         catch (OperationCanceledException) { /* a newer track superseded this one */ }
     }
@@ -125,7 +310,14 @@ public sealed partial class DeckViewModel : ViewModelBase
             return;
         }
 
+        bool fromStop = _deck.State == PlaybackState.Stopped;
+        TimeSpan at = _deck.Position;
         _deck.Play();
+        // Some backends restart a stopped player from the top; keep a hot cue
+        // jump made while stopped.
+        // After a natural end the position is still at the end: start over instead.
+        if (fromStop && at > TimeSpan.Zero && at < _deck.Duration - TimeSpan.FromMilliseconds(100))
+            _deck.Seek(at);
         Refresh();
     }
 
@@ -167,12 +359,17 @@ public sealed partial class DeckViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// Pops the next queued track, honouring shuffle and repeat. The auto-cue and
-    /// "play the next track when this one ends" both come through here.
+    /// The track <see cref="DequeueNext"/> will return. Chosen once and held, so
+    /// shuffle's random pick is known early enough to analyse it before the
+    /// auto-cue needs its start point. Chosen again if it leaves the playlist, or
+    /// stops being the top of an unshuffled one.
     /// </summary>
-    public Track? DequeueNext()
+    public Track? PeekNext()
     {
-        if (Playlist.Count == 0) return null;
+        if (Playlist.Count == 0) return _nextUp = null;
+        if (_nextUp is not null && Playlist.Contains(_nextUp) && (Shuffle || Equals(Playlist[0], _nextUp))
+            && !(ReferenceEquals(_nextUp, _lastDequeued) && Playlist.Count > 1))
+            return _nextUp;
 
         int index = 0;
         if (Shuffle && Playlist.Count > 1)
@@ -186,13 +383,34 @@ public sealed partial class DeckViewModel : ViewModelBase
                 candidates = Enumerable.Range(0, Playlist.Count).ToArray();
             index = candidates[_random.Next(candidates.Length)];
         }
+        return _nextUp = Playlist[index];
+    }
 
-        Track next = Playlist[index];
-        Playlist.RemoveAt(index);
-        if (Repeat) Playlist.Add(next);
+    /// <summary>
+    /// Pops the next queued track, honouring shuffle and repeat. The auto-cue and
+    /// "play the next track when this one ends" both come through here.
+    /// </summary>
+    public Track? DequeueNext()
+    {
+        if (PeekNext() is not { } next) return null;
+
+        _dequeuing = true;   // re-picking mid-way would see a stale _lastDequeued
+        try
+        {
+            Playlist.RemoveAt(Playlist.IndexOf(next));
+            if (Repeat) Playlist.Add(next);
+        }
+        finally { _dequeuing = false; }
+
         _lastDequeued = next;
+        _nextUp = null;
+        PrefetchNext();
         return next;
     }
+
+    private void PrefetchNext() => _analysis.Prefetch(PeekNext());
+
+    partial void OnShuffleChanged(bool value) { _nextUp = null; PrefetchNext(); }
 
     private async void PlayNextFromPlaylist()
     {
@@ -212,12 +430,47 @@ public sealed partial class DeckViewModel : ViewModelBase
     /// <summary>Pulls the current transport state out of the deck for the UI.</summary>
     public void Refresh()
     {
+        if (!ReferenceEquals(_deck.Track, _currentTrack))
+        {
+            _ = OnTrackChangedAsync();
+            return;   // it calls Refresh again once caught up
+        }
+        if (Math.Abs(_deck.Tempo - Tempo) > 0.0005)
+        {
+            // The auto-cue moved it. Follow it without treating that as the user's doing.
+            _echoingTempo = true;
+            Tempo = _deck.Tempo;
+            _echoingTempo = false;
+        }
         IsPlaying = _deck.State == PlaybackState.Playing;
         TimeSpan pos = _deck.Position, dur = _deck.Duration;
+        if (dur != _cueFractionsDuration) UpdateCueFractions();
         Elapsed = Format(pos);
         Remaining = "-" + Format(dur - pos);
         Progress = dur > TimeSpan.Zero ? pos.TotalSeconds / dur.TotalSeconds : 0;
         if (_deck.Track is { } t && NowPlaying != t.Display) NowPlaying = t.Display;
+        if (IsPlaying && pos >= PlayedThreshold(dur)) ReportPlayed();
+        SyncCommand.NotifyCanExecuteChanged();
+        string hint = SyncHint;
+        if (hint != _syncHint) { _syncHint = hint; OnPropertyChanged(nameof(SyncHint)); }
+    }
+
+    /// <summary>Raised once per loaded track, when it has played long enough to count, or ended.</summary>
+    public event EventHandler<Track>? TrackPlayed;
+
+    private bool _playedReported;
+
+    /// <summary>30 s, or 90% of a track shorter than that.</summary>
+    public static TimeSpan PlayedThreshold(TimeSpan duration) =>
+        duration > TimeSpan.Zero && duration * 0.9 < TimeSpan.FromSeconds(30)
+            ? duration * 0.9
+            : TimeSpan.FromSeconds(30);
+
+    private void ReportPlayed()
+    {
+        if (_playedReported || _deck.Track is not { } t) return;
+        _playedReported = true;
+        TrackPlayed?.Invoke(this, t);
     }
 
     private static string Format(TimeSpan t) =>

@@ -50,6 +50,9 @@ public interface IAudioEngine : IDisposable
     /// <summary>Applies a crossfader position to both decks' gains.</summary>
     void ApplyCrossfader(float position);
 
-    /// <summary>Decodes a file to amplitude peaks for display, off the calling thread.</summary>
-    Task<Waveform> AnalyseAsync(string path, CancellationToken ct = default);
+    /// <summary>
+    /// Decodes a file once for its waveform, tempo and start/end points, off the
+    /// calling thread. Returns <see cref="TrackAnalysis.Empty"/> if it cannot be decoded.
+    /// </summary>
+    Task<TrackAnalysis> AnalyseAsync(string path, CancellationToken ct = default);
 }

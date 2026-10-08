@@ -49,13 +49,31 @@ public sealed class FakeAudioEngine : IAudioEngine
         B.Volume = b;
     }
 
-    /// <summary>Returns a recognisable synthetic waveform so renders are deterministic.</summary>
-    public Task<Waveform> AnalyseAsync(string path, CancellationToken ct = default)
+    /// <summary>Per-path results. Anything not listed gets <see cref="Analysis"/> with no BPM.</summary>
+    public Dictionary<string, TrackAnalysis> Analyses { get; } = [];
+
+    /// <summary>Paths whose analysis throws, as a broken decoder might.</summary>
+    public HashSet<string> Throwing { get; } = [];
+
+    /// <summary>Every path analysed, in order.</summary>
+    public List<string> AnalysedPaths { get; } = [];
+
+    /// <summary>A recognisable synthetic waveform, so renders are deterministic, plus the given numbers.</summary>
+    public static TrackAnalysis Analysis(double? bpm = null, double? first = null, double? last = null)
     {
         var peaks = new float[Waveform.DefaultBuckets];
         for (int i = 0; i < peaks.Length; i++)
             peaks[i] = 0.35f + 0.55f * MathF.Abs(MathF.Sin(i * 0.012f)) * (0.6f + 0.4f * MathF.Sin(i * 0.0013f));
-        return Task.FromResult(new Waveform(peaks));
+        return new TrackAnalysis(new Waveform(peaks), bpm, bpm is null ? null : TimeSpan.Zero,
+            first is null ? null : TimeSpan.FromSeconds(first.Value),
+            last is null ? null : TimeSpan.FromSeconds(last.Value));
+    }
+
+    public Task<TrackAnalysis> AnalyseAsync(string path, CancellationToken ct = default)
+    {
+        lock (AnalysedPaths) AnalysedPaths.Add(path);
+        if (Throwing.Contains(path)) throw new InvalidOperationException($"cannot decode {path}");
+        return Task.FromResult(Analyses.TryGetValue(path, out TrackAnalysis? a) ? a : Analysis());
     }
 
     public void Dispose() { }

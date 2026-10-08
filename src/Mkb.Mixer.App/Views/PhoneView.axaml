@@ -23,12 +23,13 @@
     <TabControl Grid.Row="1" Classes="phonetabs" TabStripPlacement="Bottom">
 
       <TabItem Header="MIX">
+        <!-- The touch scroll bar is always shown and overlays the content, so the right margin leaves it a gutter. -->
         <ScrollViewer>
-          <StackPanel Margin="10" Spacing="10">
+          <StackPanel Margin="10,10,28,10" Spacing="10">
             <views:DeckView DataContext="{Binding DeckA}" />
 
             <Border Classes="panel">
-              <Grid RowDefinitions="Auto,Auto,Auto" ColumnDefinitions="Auto,*,Auto">
+              <Grid RowDefinitions="Auto,Auto,Auto,Auto" ColumnDefinitions="Auto,*,Auto">
                 <TextBlock Classes="heading" Text="A" VerticalAlignment="Center" />
                 <Slider Grid.Column="1" Minimum="0" Maximum="1" Margin="12,0"
                         Value="{Binding CrossfaderPosition}" />
@@ -43,8 +44,18 @@
                                  Value="{Binding CrossfadeSeconds}" />
                 </StackPanel>
 
+                <StackPanel Grid.Row="2" Grid.ColumnSpan="3" Orientation="Horizontal"
+                            HorizontalAlignment="Center" Spacing="8" Margin="0,6,0,0">
+                  <TextBlock Classes="dim" Text="match tempo" VerticalAlignment="Center" />
+                  <ComboBox SelectedIndex="{Binding TempoMatchIndex}" MinWidth="140">
+                    <ComboBoxItem>off</ComboBoxItem>
+                    <ComboBoxItem>match</ComboBoxItem>
+                    <ComboBoxItem>match + glide</ComboBoxItem>
+                  </ComboBox>
+                </StackPanel>
+
                 <!-- Headphone cue. Split is the mode phones can actually use. -->
-                <WrapPanel Grid.Row="2" Grid.ColumnSpan="3" HorizontalAlignment="Center"
+                <WrapPanel Grid.Row="3" Grid.ColumnSpan="3" HorizontalAlignment="Center"
                            Margin="0,6,0,0">
                   <TextBlock Classes="dim" Text="headphones" VerticalAlignment="Center" Margin="0,0,8,0" />
                   <ComboBox ItemsSource="{Binding CueModes}" SelectedItem="{Binding CueMode}"
@@ -100,7 +111,7 @@
       </TabItem>
 
       <TabItem Header="LIBRARY">
-        <Grid RowDefinitions="Auto,2*,Auto,3*,Auto" Margin="10">
+        <Grid RowDefinitions="Auto,Auto,2*,Auto,3*,Auto" Margin="10">
           <Grid ColumnDefinitions="*,Auto,Auto">
             <TextBox PlaceholderText="Search this folder and below…" Text="{Binding SearchText}" />
             <Button Grid.Column="1" Content="Search" Margin="6,0,0,0"
@@ -110,7 +121,16 @@
           </Grid>
 
           <!-- Folder tree, expanded lazily -->
-          <Border Grid.Row="1" Classes="panel" Padding="4" Margin="0,8,0,0">
+          <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="6" Margin="0,8,0,0">
+            <TextBlock Classes="dim" Text="BPM" VerticalAlignment="Center" />
+            <NumericUpDown Classes="bpmfilter" Value="{Binding BpmMin}" PlaceholderText="from" />
+            <TextBlock Classes="dim" Text="–" VerticalAlignment="Center" />
+            <NumericUpDown Classes="bpmfilter" Value="{Binding BpmMax}" PlaceholderText="to" />
+            <Button Classes="tiny" Content="≈" Command="{Binding MatchBpmCommand}" />
+            <CheckBox Content="analyse" IsChecked="{Binding AnalyseLibraryBpm}" Margin="6,0,0,0" />
+          </StackPanel>
+
+          <Border Grid.Row="2" Classes="panel" Padding="4" Margin="0,8,0,0">
             <TreeView ItemsSource="{Binding Roots}" SelectedItem="{Binding SelectedFolder}">
               <TreeView.Styles>
                 <!-- Without this the node's IsExpanded never fires, so children are
@@ -127,30 +147,32 @@
             </TreeView>
           </Border>
 
-          <ProgressBar Grid.Row="2" IsIndeterminate="True" Height="3" Margin="0,4,0,0"
+          <ProgressBar Grid.Row="3" IsIndeterminate="True" Height="3" Margin="0,4,0,0"
                        IsVisible="{Binding IsScanning}" />
 
           <!-- Tracks in the selected folder. A list rather than the tablet's grid,
                which needs far more width than a phone has for its columns. -->
-          <Border Grid.Row="3" Classes="panel" Padding="4" Margin="0,4,0,0">
-            <ListBox Classes="tracks" ItemsSource="{Binding BrowserTracks}"
-                     SelectedItem="{Binding SelectedBrowserTrack}">
+          <Border Grid.Row="4" Classes="panel" Padding="4" Margin="0,4,0,0">
+            <ListBox Classes="tracks" ItemsSource="{Binding BrowserRows}"
+                     SelectedItem="{Binding SelectedBrowserRow}">
               <ListBox.ItemTemplate>
-                <DataTemplate x:DataType="audio:Track">
-                  <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto">
-                    <TextBlock Text="{Binding Title}" FontSize="14" FontWeight="SemiBold"
+                <DataTemplate x:DataType="vm:LibraryRow">
+                  <Grid ColumnDefinitions="*,Auto,Auto" RowDefinitions="Auto,Auto" Opacity="{Binding RowOpacity}">
+                    <TextBlock Text="{Binding Track.Title}" FontSize="14" FontWeight="SemiBold"
                                TextTrimming="CharacterEllipsis" />
-                    <TextBlock Grid.Row="1" Classes="dim" Text="{Binding Artist}"
+                    <TextBlock Grid.Row="1" Classes="dim" Text="{Binding Track.Artist}"
                                TextTrimming="CharacterEllipsis" />
                     <TextBlock Grid.Column="1" Grid.RowSpan="2" Classes="time" Margin="10,0,0,0"
-                               Text="{Binding DurationText}" VerticalAlignment="Center" />
+                               Text="{Binding BpmText}" VerticalAlignment="Center" />
+                    <TextBlock Grid.Column="2" Grid.RowSpan="2" Classes="time" Margin="10,0,0,0"
+                               Text="{Binding Track.DurationText}" VerticalAlignment="Center" />
                   </Grid>
                 </DataTemplate>
               </ListBox.ItemTemplate>
             </ListBox>
           </Border>
 
-          <Grid Grid.Row="4" ColumnDefinitions="*,8,*" Margin="0,8,0,0">
+          <Grid Grid.Row="5" ColumnDefinitions="*,8,*" Margin="0,8,0,0">
             <Button Content="→ Deck A" HorizontalAlignment="Stretch"
                     HorizontalContentAlignment="Center" Command="{Binding AddToDeckACommand}" />
             <Button Grid.Column="2" Content="→ Deck B" HorizontalAlignment="Stretch"
