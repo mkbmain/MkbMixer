@@ -61,6 +61,14 @@
     <Setter Property="MinWidth" Value="0" />
   </Style>
 
+  <Style Selector="NumericUpDown.bpmfilter">
+    <Setter Property="Width" Value="64" />
+    <Setter Property="ShowButtonSpinner" Value="False" />
+    <Setter Property="Minimum" Value="40" />
+    <Setter Property="Maximum" Value="250" />
+    <Setter Property="FormatString" Value="0.#" />
+  </Style>
+
   <Style Selector="ToggleButton.decktoggle">
     <Setter Property="Padding" Value="8,2" />
     <Setter Property="Margin" Value="4,0,0,0" />

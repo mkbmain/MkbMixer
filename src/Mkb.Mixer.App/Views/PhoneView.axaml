@@ -100,7 +100,7 @@
       </TabItem>
 
       <TabItem Header="LIBRARY">
-        <Grid RowDefinitions="Auto,2*,Auto,3*,Auto" Margin="10">
+        <Grid RowDefinitions="Auto,Auto,2*,Auto,3*,Auto" Margin="10">
           <Grid ColumnDefinitions="*,Auto,Auto">
             <TextBox PlaceholderText="Search this folder and below…" Text="{Binding SearchText}" />
             <Button Grid.Column="1" Content="Search" Margin="6,0,0,0"
@@ -110,7 +110,16 @@
           </Grid>
 
           <!-- Folder tree, expanded lazily -->
-          <Border Grid.Row="1" Classes="panel" Padding="4" Margin="0,8,0,0">
+          <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="6" Margin="0,8,0,0">
+            <TextBlock Classes="dim" Text="BPM" VerticalAlignment="Center" />
+            <NumericUpDown Classes="bpmfilter" Value="{Binding BpmMin}" PlaceholderText="from" />
+            <TextBlock Classes="dim" Text="–" VerticalAlignment="Center" />
+            <NumericUpDown Classes="bpmfilter" Value="{Binding BpmMax}" PlaceholderText="to" />
+            <Button Classes="tiny" Content="≈" Command="{Binding MatchBpmCommand}" />
+            <CheckBox Content="analyse" IsChecked="{Binding AnalyseLibraryBpm}" Margin="6,0,0,0" />
+          </StackPanel>
+
+          <Border Grid.Row="2" Classes="panel" Padding="4" Margin="0,8,0,0">
             <TreeView ItemsSource="{Binding Roots}" SelectedItem="{Binding SelectedFolder}">
               <TreeView.Styles>
                 <!-- Without this the node's IsExpanded never fires, so children are
@@ -127,12 +136,12 @@
             </TreeView>
           </Border>
 
-          <ProgressBar Grid.Row="2" IsIndeterminate="True" Height="3" Margin="0,4,0,0"
+          <ProgressBar Grid.Row="3" IsIndeterminate="True" Height="3" Margin="0,4,0,0"
                        IsVisible="{Binding IsScanning}" />
 
           <!-- Tracks in the selected folder. A list rather than the tablet's grid,
                which needs far more width than a phone has for its columns. -->
-          <Border Grid.Row="3" Classes="panel" Padding="4" Margin="0,4,0,0">
+          <Border Grid.Row="4" Classes="panel" Padding="4" Margin="0,4,0,0">
             <ListBox Classes="tracks" ItemsSource="{Binding BrowserRows}"
                      SelectedItem="{Binding SelectedBrowserRow}">
               <ListBox.ItemTemplate>
@@ -152,7 +161,7 @@
             </ListBox>
           </Border>
 
-          <Grid Grid.Row="4" ColumnDefinitions="*,8,*" Margin="0,8,0,0">
+          <Grid Grid.Row="5" ColumnDefinitions="*,8,*" Margin="0,8,0,0">
             <Button Content="→ Deck A" HorizontalAlignment="Stretch"
                     HorizontalContentAlignment="Center" Command="{Binding AddToDeckACommand}" />
             <Button Grid.Column="2" Content="→ Deck B" HorizontalAlignment="Stretch"

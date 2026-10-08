@@ -19,6 +19,9 @@ public sealed class AppSettings
     public CueMode CueMode { get; set; } = CueMode.Off;
     public string? CueDevice { get; set; }
     public float CueMix { get; set; }
+
+    /// <summary>Analyse library folders for BPM in the background. Null: on, except on phones.</summary>
+    public bool? AnalyseLibraryBpm { get; set; }
 }
 
 /// <summary>Persists <see cref="AppSettings"/> as JSON, defaulting rather than throwing.</summary>

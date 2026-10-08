@@ -78,6 +78,8 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
         _crossfaderPosition = _settings.CrossfaderPosition;
         _autoCueEnabled = _settings.AutoCueEnabled;
         _crossfadeSeconds = _settings.CrossfadeSeconds;
+        _analyseLibraryBpm = _settings.AnalyseLibraryBpm ?? !App.UsePhoneLayout;
+        Analysis.Analysed += (_, path) => OnAnalysed(path);
         _currentFolder = _settings.LastFolder ?? DefaultFolder();
         engine.ApplyCrossfader(_crossfaderPosition);
 
@@ -434,6 +436,7 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
         _folderRows.Clear();
         _folderRows.AddRange(rows);
         ApplyFilter();
+        QueueLibraryAnalysis();
     }
 
     /// <summary>Lists one folder's audio files, reading tags off the UI thread.</summary>
@@ -496,6 +499,7 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
                 BrowserRows.Add(row);
                 StatusMessage = $"{BrowserRows.Count} match(es)…";
             }
+            QueueLibraryAnalysis();
             StatusMessage = $"{BrowserRows.Count} match(es) for \"{needle}\"";
         }
         catch (OperationCanceledException) { StatusMessage = "Search cancelled"; }
@@ -513,8 +517,68 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
     }
 
     private bool Matches(LibraryRow row) =>
-        string.IsNullOrWhiteSpace(SearchText) ||
-        row.Track.Display.Contains(SearchText, StringComparison.OrdinalIgnoreCase);
+        InBpmRange(row.Bpm) &&
+        (string.IsNullOrWhiteSpace(SearchText) ||
+         row.Track.Display.Contains(SearchText, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>The ≈ button's window around the audible deck's BPM.</summary>
+    public const double MatchBpmRange = 0.06;
+
+    [ObservableProperty] private decimal? _bpmMin;
+    [ObservableProperty] private decimal? _bpmMax;
+
+    /// <summary>Analyse every track in an opened folder, lowest priority. Costs battery on phones.</summary>
+    [ObservableProperty] private bool _analyseLibraryBpm;
+
+    partial void OnBpmMinChanged(decimal? value) => ApplyFilter();
+    partial void OnBpmMaxChanged(decimal? value) => ApplyFilter();
+    partial void OnAnalyseLibraryBpmChanged(bool value) => QueueLibraryAnalysis();
+
+    private void QueueLibraryAnalysis() =>
+        Analysis.QueueFolder(AnalyseLibraryBpm ? _folderRows.Select(r => r.Track) : []);
+
+    private bool InBpmRange(double? bpm)
+    {
+        if (BpmMin is null && BpmMax is null) return true;
+        if (bpm is null) return false;
+        double lo = BpmMin is { } min ? (double)min : 0;
+        double hi = BpmMax is { } max ? (double)max : double.MaxValue;
+        if (lo > hi) (lo, hi) = (hi, lo);
+        return bpm >= lo && bpm <= hi;
+    }
+
+    /// <summary>The deck the room is hearing: the playing one in front on the crossfader.</summary>
+    private DeckViewModel AudibleDeck()
+    {
+        DeckViewModel front = CrossfaderPosition <= Crossfader.Centre ? DeckA : DeckB;
+        DeckViewModel back = ReferenceEquals(front, DeckA) ? DeckB : DeckA;
+        return !front.IsPlaying && back.IsPlaying ? back : front;
+    }
+
+    /// <summary>Filters the library to what will mix with the audible deck.</summary>
+    [RelayCommand]
+    private void MatchBpm()
+    {
+        if (AudibleDeck().HeardBpm is not { } bpm)
+        {
+            StatusMessage = "No BPM to match: the playing deck's BPM isn't known yet";
+            return;
+        }
+        BpmMin = Math.Round((decimal)(bpm * (1 - MatchBpmRange)), 1);
+        BpmMax = Math.Round((decimal)(bpm * (1 + MatchBpmRange)), 1);
+    }
+
+    private void OnAnalysed(string path)
+    {
+        double? bpm = _tracks.Get(path)?.DisplayBpm;
+        foreach (LibraryRow row in _folderRows.Where(r => r.Track.Path == path))
+        {
+            row.Bpm = bpm;
+            // Add a newly matching row without rebuilding the list, so the
+            // selection survives a background folder scan.
+            if (Matches(row) && !BrowserRows.Contains(row)) BrowserRows.Add(row);
+        }
+    }
 
     [RelayCommand]
     private void AddToDeckA() => AddToDeck(DeckA);
@@ -601,6 +665,7 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
         _settings.CueMode = CueMode;
         _settings.CueDevice = CueDevice;
         _settings.CueMix = CueMix;
+        _settings.AnalyseLibraryBpm = AnalyseLibraryBpm;
         _settingsStore.Save(_settings);
         SavePlaylists();
         _tracks.Flush();
