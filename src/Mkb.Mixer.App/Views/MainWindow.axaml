@@ -5,6 +5,7 @@
         x:Class="Mkb.Mixer.App.Views.MainWindow"
         x:DataType="vm:MainViewModel"
         Title="MKB Music Mixer"
+        Icon="/Assets/mkb-mixer.ico"
         Width="1280" Height="840" MinWidth="900" MinHeight="680"
         Background="{StaticResource WindowBg}">
 

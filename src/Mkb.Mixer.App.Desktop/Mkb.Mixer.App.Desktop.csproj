@@ -5,6 +5,8 @@
     <Nullable>enable</Nullable>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <RootNamespace>Mkb.Mixer.App</RootNamespace>
+    <!-- The .exe's own icon in Explorer and the taskbar; the window sets its icon separately. -->
+    <ApplicationIcon>..\Mkb.Mixer.App\Assets\mkb-mixer.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>

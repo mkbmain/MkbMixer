@@ -11,5 +11,5 @@
 	<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 	<!-- Android 10 alone has scoped storage without path access to media files;
 	     this opts out there. Ignored from Android 11, where path access returns. -->
-	<application android:label="MKB Mixer" android:icon="@drawable/Icon" android:requestLegacyExternalStorage="true" />
+	<application android:label="MKB Mixer" android:icon="@mipmap/ic_launcher" android:requestLegacyExternalStorage="true" />
 </manifest>
