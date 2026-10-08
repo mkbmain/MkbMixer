@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Mkb.Mixer.App.Services;
 using Mkb.Mixer.Audio;
 using Mkb.Mixer.Library;
 
@@ -18,6 +19,7 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
     private readonly IAudioEngine _engine;
     private readonly SettingsStore _settingsStore;
     private readonly AppSettings _settings;
+    private readonly TrackStore _tracks;
     private readonly AutoCue _autoCue;
     private DispatcherTimer? _timer;
     private readonly Stopwatch _clock = Stopwatch.StartNew();
@@ -25,16 +27,27 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
     private bool _suppressFaderFeedback;
     private readonly System.Collections.Generic.List<DeckViewModel> _pausedByPauseAll = [];
 
-    public MainViewModel() : this(new SoundFlowAudioEngine(), SettingsStore.Default()) { }
+    public AnalysisQueue Analysis { get; }
 
+    public MainViewModel() : this(new SoundFlowAudioEngine(), SettingsStore.Default(), TrackStore.Default()) { }
+
+    /// <summary>Remembers nothing per track between runs. For tests.</summary>
     public MainViewModel(IAudioEngine engine, SettingsStore settingsStore)
+        : this(engine, settingsStore, TrackStore.InMemory()) { }
+
+    /// <param name="post">How analysis results reach the UI thread; see <see cref="AnalysisQueue"/>.</param>
+    /// <param name="manualAnalysis">No background worker; tests drive <see cref="Analysis"/> themselves.</param>
+    public MainViewModel(IAudioEngine engine, SettingsStore settingsStore, TrackStore tracks,
+                         Action<Action>? post = null, bool manualAnalysis = false)
     {
         _engine = engine;
         _settingsStore = settingsStore;
         _settings = settingsStore.Load();
+        _tracks = tracks;
+        Analysis = new AnalysisQueue(engine, tracks, post, manualAnalysis);
 
-        DeckA = new DeckViewModel(engine.DeckA, engine);
-        DeckB = new DeckViewModel(engine.DeckB, engine);
+        DeckA = new DeckViewModel(engine.DeckA, engine, analysis: Analysis);
+        DeckB = new DeckViewModel(engine.DeckB, engine, analysis: Analysis);
         DeckA.PlaybackRefused += (_, why) => StatusMessage = why;
         DeckB.PlaybackRefused += (_, why) => StatusMessage = why;
 
@@ -540,6 +553,7 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
         _settings.CueMix = CueMix;
         _settingsStore.Save(_settings);
         SavePlaylists();
+        _tracks.Flush();
     }
 
     public double SavedWidth => _settings.WindowWidth;
@@ -549,6 +563,8 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
     {
         _timer?.Stop();
         _scan?.Cancel();
+        Analysis.Dispose();
+        _tracks.Dispose();
         _engine.Dispose();
     }
 }

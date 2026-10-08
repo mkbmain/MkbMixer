@@ -6,7 +6,9 @@ using System.Threading.Tasks;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Mkb.Mixer.App.Services;
 using Mkb.Mixer.Audio;
+using Mkb.Mixer.Library;
 
 namespace Mkb.Mixer.App.ViewModels;
 
@@ -16,15 +18,19 @@ public sealed partial class DeckViewModel : ViewModelBase
     private readonly IDeck _deck;
     private readonly IAudioEngine _engine;
     private readonly Random _random;
-    private CancellationTokenSource? _analysis;
+    private readonly AnalysisQueue _analysis;
+    private CancellationTokenSource? _analysisCts;
+    private Track? _currentTrack;
     private Track? _lastDequeued;
 
     /// <param name="random">Injectable so tests can make shuffle deterministic.</param>
-    public DeckViewModel(IDeck deck, IAudioEngine engine, Random? random = null)
+    /// <param name="analysis">Shared with the other deck and the library; a private in-memory one when omitted.</param>
+    public DeckViewModel(IDeck deck, IAudioEngine engine, Random? random = null, AnalysisQueue? analysis = null)
     {
         _deck = deck;
         _engine = engine;
         _random = random ?? Random.Shared;
+        _analysis = analysis ?? new AnalysisQueue(engine, TrackStore.InMemory(), manual: true);
         // SoundFlow raises this from its audio callback thread, so it has to be
         // marshalled before it touches anything bound to the UI.
         _deck.TrackEnded += (_, _) => Dispatcher.UIThread.Post(PlayNextFromPlaylist);
@@ -81,20 +87,32 @@ public sealed partial class DeckViewModel : ViewModelBase
 
     partial void OnIsCuedChanged(bool value) => _deck.IsCued = value;
 
-    /// <summary>Loads a track and kicks off waveform analysis in the background.</summary>
+    /// <summary>Loads a track and kicks off its analysis in the background.</summary>
     public async Task LoadAsync(Track track)
     {
         _deck.Load(track);
-        NowPlaying = track.Display;
+        await OnTrackChangedAsync();
+    }
+
+    /// <summary>
+    /// Catches up with whatever the deck now holds, whether this view model loaded
+    /// it or the auto-cue did on the <see cref="IDeck"/> directly. Before this, a
+    /// track brought in by the auto-cue kept the previous track's waveform.
+    /// </summary>
+    private async Task OnTrackChangedAsync()
+    {
+        Track? track = _deck.Track;
+        _currentTrack = track;
         Waveform = Waveform.Empty;
         Refresh();
+        if (track is null) return;
 
-        _analysis?.Cancel();
-        _analysis = new CancellationTokenSource();
-        CancellationToken ct = _analysis.Token;
+        _analysisCts?.Cancel();
+        _analysisCts = new CancellationTokenSource();
+        CancellationToken ct = _analysisCts.Token;
         try
         {
-            TrackAnalysis analysis = await _engine.AnalyseAsync(track.Path, ct);
+            TrackAnalysis analysis = await _analysis.AnalyseForDeckAsync(track, ct);
             if (!ct.IsCancellationRequested) Waveform = analysis.Waveform;
         }
         catch (OperationCanceledException) { /* a newer track superseded this one */ }
@@ -212,6 +230,11 @@ public sealed partial class DeckViewModel : ViewModelBase
     /// <summary>Pulls the current transport state out of the deck for the UI.</summary>
     public void Refresh()
     {
+        if (!ReferenceEquals(_deck.Track, _currentTrack))
+        {
+            _ = OnTrackChangedAsync();
+            return;   // it calls Refresh again once caught up
+        }
         IsPlaying = _deck.State == PlaybackState.Playing;
         TimeSpan pos = _deck.Position, dur = _deck.Duration;
         Elapsed = Format(pos);
