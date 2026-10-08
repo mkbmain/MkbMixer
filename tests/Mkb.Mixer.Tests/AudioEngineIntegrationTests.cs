@@ -7,6 +7,7 @@ namespace Mkb.Mixer.Tests;
 /// that would have caught silent playback: everything else uses a fake deck, and a
 /// fake deck cannot tell you that the output device never opened.
 /// </summary>
+[Trait("Category", "Audio")]
 public class AudioEngineIntegrationTests : IDisposable
 {
     private readonly string _dir = Directory.CreateTempSubdirectory("mkb-engine").FullName;
