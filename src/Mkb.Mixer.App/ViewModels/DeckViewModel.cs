@@ -33,7 +33,11 @@ public sealed partial class DeckViewModel : ViewModelBase
         _analysis = analysis ?? new AnalysisQueue(engine, TrackStore.InMemory(), manual: true);
         // SoundFlow raises this from its audio callback thread, so it has to be
         // marshalled before it touches anything bound to the UI.
-        _deck.TrackEnded += (_, _) => Dispatcher.UIThread.Post(PlayNextFromPlaylist);
+        _deck.TrackEnded += (_, _) => Dispatcher.UIThread.Post(() =>
+        {
+            ReportPlayed();
+            PlayNextFromPlaylist();
+        });
     }
 
     public DeckId Id => _deck.Id;
@@ -103,6 +107,7 @@ public sealed partial class DeckViewModel : ViewModelBase
     {
         Track? track = _deck.Track;
         _currentTrack = track;
+        _playedReported = false;
         Waveform = Waveform.Empty;
         Refresh();
         if (track is null) return;
@@ -241,6 +246,25 @@ public sealed partial class DeckViewModel : ViewModelBase
         Remaining = "-" + Format(dur - pos);
         Progress = dur > TimeSpan.Zero ? pos.TotalSeconds / dur.TotalSeconds : 0;
         if (_deck.Track is { } t && NowPlaying != t.Display) NowPlaying = t.Display;
+        if (IsPlaying && pos >= PlayedThreshold(dur)) ReportPlayed();
+    }
+
+    /// <summary>Raised once per loaded track, when it has played long enough to count, or ended.</summary>
+    public event EventHandler<Track>? TrackPlayed;
+
+    private bool _playedReported;
+
+    /// <summary>30 s, or 90% of a track shorter than that.</summary>
+    public static TimeSpan PlayedThreshold(TimeSpan duration) =>
+        duration > TimeSpan.Zero && duration * 0.9 < TimeSpan.FromSeconds(30)
+            ? duration * 0.9
+            : TimeSpan.FromSeconds(30);
+
+    private void ReportPlayed()
+    {
+        if (_playedReported || _deck.Track is not { } t) return;
+        _playedReported = true;
+        TrackPlayed?.Invoke(this, t);
     }
 
     private static string Format(TimeSpan t) =>

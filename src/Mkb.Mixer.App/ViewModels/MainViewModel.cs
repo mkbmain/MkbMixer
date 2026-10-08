@@ -48,6 +48,8 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
 
         DeckA = new DeckViewModel(engine.DeckA, engine, analysis: Analysis);
         DeckB = new DeckViewModel(engine.DeckB, engine, analysis: Analysis);
+        DeckA.TrackPlayed += (_, t) => OnTrackPlayed(t);
+        DeckB.TrackPlayed += (_, t) => OnTrackPlayed(t);
         DeckA.PlaybackRefused += (_, why) => StatusMessage = why;
         DeckB.PlaybackRefused += (_, why) => StatusMessage = why;
 
@@ -309,9 +311,11 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
 
     partial void OnSelectedFolderChanged(FolderNode? value)
     {
+        if (value is { IsRecentlyPlayed: true })
+            _ = ShowRecentlyPlayedAsync();
         // The "…" placeholder stands in for unexpanded children and is not a real
         // path; browsing it would fail with "could not find a part of the path".
-        if (value is { IsPlaceholder: false })
+        else if (value is { IsPlaceholder: false })
             _ = LoadFolderAsync(value.Path);
     }
 
@@ -348,6 +352,7 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
     public void LoadRoots()
     {
         Roots.Clear();
+        Roots.Add(FolderNode.RecentlyPlayed());
         if (PlatformRoots is not null)
         {
             foreach (StorageRoot root in PlatformRoots().Where(r => Directory.Exists(r.Path)).DistinctBy(r => r.Path))
@@ -383,7 +388,43 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
 
     private readonly System.Collections.Generic.List<LibraryRow> _folderRows = [];
 
-    private LibraryRow RowFor(Track t) => new(t) { Bpm = _tracks.Get(t.Path)?.DisplayBpm };
+    private LibraryRow RowFor(Track t)
+    {
+        bool played;
+        lock (_sessionPlayed) played = _sessionPlayed.Contains(t.Path);
+        return new LibraryRow(t) { Bpm = _tracks.Get(t.Path)?.DisplayBpm, IsPlayed = played };
+    }
+
+    public const int RecentlyPlayedLimit = 100;
+
+    /// <summary>Paths played since the app started, for the library's tick.</summary>
+    private readonly System.Collections.Generic.HashSet<string> _sessionPlayed = [];
+
+    private void OnTrackPlayed(Track track)
+    {
+        _tracks.MarkPlayed(track.Path, DateTime.UtcNow);
+        lock (_sessionPlayed) _sessionPlayed.Add(track.Path);
+        foreach (LibraryRow row in _folderRows.Where(r => r.Track.Path == track.Path))
+            row.IsPlayed = true;
+    }
+
+    /// <summary>Lists the most recently played tracks that still exist, newest first.</summary>
+    public async Task ShowRecentlyPlayedAsync()
+    {
+        _scan?.Cancel();
+        _scan = new CancellationTokenSource();
+        CancellationToken ct = _scan.Token;
+        try
+        {
+            var rows = await Task.Run(() => _tracks.RecentlyPlayed(RecentlyPlayedLimit)
+                .Where(File.Exists)
+                .Select(path => { ct.ThrowIfCancellationRequested(); return RowFor(TrackMetadataReader.Read(path)); })
+                .ToList(), ct);
+            SetFolderRows(rows);
+            StatusMessage = $"{rows.Count} recently played track(s)";
+        }
+        catch (OperationCanceledException) { /* superseded by a newer selection */ }
+    }
 
     /// <summary>Replaces what the library lists. Later tasks hook background analysis in here.</summary>
     private void SetFolderRows(System.Collections.Generic.IEnumerable<LibraryRow> rows)

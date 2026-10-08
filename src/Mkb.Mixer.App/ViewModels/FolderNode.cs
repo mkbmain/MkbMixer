@@ -22,6 +22,18 @@ public sealed partial class FolderNode : ObservableObject
     /// <summary>A root with a name the platform chose, such as "SanDisk SD card".</summary>
     public FolderNode(string path, string name) : this(path, isPlaceholder: false) => Name = name;
 
+    /// <summary>The fixed "Recently played" entry at the top of the tree. It has no path or children.</summary>
+    public static FolderNode RecentlyPlayed() => new();
+
+    private FolderNode()
+    {
+        Path = string.Empty;
+        Name = "★ Recently played";
+        IsRecentlyPlayed = true;
+    }
+
+    public bool IsRecentlyPlayed { get; }
+
     private FolderNode(string path, bool isPlaceholder)
     {
         Path = path;
