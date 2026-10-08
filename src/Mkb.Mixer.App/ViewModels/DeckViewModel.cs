@@ -66,7 +66,18 @@ public sealed partial class DeckViewModel : ViewModelBase
         OnPropertyChanged(nameof(MuteLabel));
     }
 
-    partial void OnTempoChanged(double value) => _deck.Tempo = (float)value;
+    /// <summary>The tempo as a multiplier, which doubles as the button that resets it.</summary>
+    public string TempoLabel => $"{Tempo:0.00}×";
+
+    partial void OnTempoChanged(double value)
+    {
+        _deck.Tempo = (float)value;
+        OnPropertyChanged(nameof(TempoLabel));
+    }
+
+    /// <summary>Back to normal speed, since dragging the slider to dead centre on touch is fiddly.</summary>
+    [RelayCommand]
+    private void ResetTempo() => Tempo = 1.0;
 
     partial void OnIsCuedChanged(bool value) => _deck.IsCued = value;
 

@@ -198,6 +198,7 @@ audio library is swappable and the logic is testable without an audio device.
 - ID3/Vorbis/MP4 tags, so lists show `Artist — Title` rather than `C:\Music\x.mp3`.
 - Playlists saved as M3U, and settings persisted between runs.
 - Tempo control that preserves pitch (WSOLA) rather than resampling.
+  Tap the tempo readout (or double-tap the slider) to snap back to 1.00×.
 - FLAC, OGG, M4A, AAC and Opus support.
 - Headphone cue, in Split (one output and a splitter) or second-device mode.
 - Per-deck shuffle and repeat.

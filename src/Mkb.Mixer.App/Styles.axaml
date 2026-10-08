@@ -93,6 +93,16 @@
     <Setter Property="Width" Value="130" />
   </Style>
 
+  <!-- Shows the tempo and resets it on tap. Fixed width so the slider doesn't
+       shift as the number changes. -->
+  <Style Selector="Button.temporeset">
+    <Setter Property="Width" Value="52" />
+    <Setter Property="Padding" Value="0,2" />
+    <Setter Property="FontSize" Value="11" />
+    <Setter Property="FontFamily" Value="monospace" />
+    <Setter Property="HorizontalContentAlignment" Value="Center" />
+  </Style>
+
   <!-- Tablet. The deck row sizes to its content, which left the library only a
        couple of rows, so on touch the deck folds its title into the header row and
        its times into the transport row, and caps the playlist at about three tracks. -->
@@ -110,7 +120,7 @@
   <Style Selector=".touch Grid.times">
     <Setter Property="Grid.Row" Value="4" />
     <!-- Sits between the transport buttons and the tempo slider, both fixed width. -->
-    <Setter Property="Margin" Value="150,0,190,0" />
+    <Setter Property="Margin" Value="150,0,210,0" />
     <Setter Property="VerticalAlignment" Value="Center" />
   </Style>
 
@@ -159,12 +169,9 @@
     <Setter Property="Height" Value="44" />
   </Style>
 
-  <Style Selector=".phone TextBlock.tempolabel">
-    <Setter Property="IsVisible" Value="False" />
-  </Style>
-
+  <!-- Narrower so the tempo reset button still fits beside it. -->
   <Style Selector=".phone Slider.tempo">
-    <Setter Property="Width" Value="110" />
+    <Setter Property="Width" Value="86" />
   </Style>
 
   <Style Selector=".phone views|PlaylistView.deckplaylist">
