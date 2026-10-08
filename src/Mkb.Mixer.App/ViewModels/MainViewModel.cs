@@ -60,7 +60,7 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
         DeckB.Shuffle = _settings.DeckBShuffle;
         DeckB.Repeat = _settings.DeckBRepeat;
 
-        _autoCue = new AutoCue(engine.DeckA, engine.DeckB, DequeueFor)
+        _autoCue = new AutoCue(engine.DeckA, engine.DeckB, DequeueFor, TimingFor)
         {
             Enabled = _settings.AutoCueEnabled,
             CrossfadeDuration = TimeSpan.FromSeconds(_settings.CrossfadeSeconds),
@@ -324,6 +324,18 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
     }
 
     partial void OnSearchTextChanged(string value) => ApplyFilter();
+
+    /// <summary>Hot cue 1 beats the detected first sound as the place to bring a track in.</summary>
+    private TrackTiming? TimingFor(Track track)
+    {
+        if (_tracks.Get(track.Path) is not { } info) return null;
+        return new TrackTiming(
+            Seconds(info.HotCueSeconds[0] ?? info.FirstSoundSeconds),
+            Seconds(info.LastSoundSeconds),
+            info.DisplayBpm);
+
+        static TimeSpan? Seconds(double? s) => s is { } v ? TimeSpan.FromSeconds(v) : null;
+    }
 
     private Track? DequeueFor(DeckId id) =>
         (id == DeckId.A ? DeckA : DeckB).DequeueNext();

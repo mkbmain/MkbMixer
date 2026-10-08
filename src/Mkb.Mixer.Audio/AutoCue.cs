@@ -17,8 +17,16 @@ public enum AutoCueState { Idle, Transitioning }
 /// is a <c>&gt;=</c> threshold guarded by the state, so it fires exactly once and
 /// cannot be skipped, and the fade interpolates on elapsed time so its shape does
 /// not depend on how often <see cref="Tick"/> happens to be called.
+///
+/// Given track timings it fades to finish at the outgoing track's last real sound and brings the next one in at its first.
 /// </remarks>
-public sealed class AutoCue(IDeck deckA, IDeck deckB, Func<DeckId, Track?> dequeueNext)
+/// <param name="timing">Start, end and BPM per track, if known. Without it the
+/// auto-cue fades on the file's length and starts tracks from the top.</param>
+public sealed class AutoCue(
+    IDeck deckA,
+    IDeck deckB,
+    Func<DeckId, Track?> dequeueNext,
+    Func<Track, TrackTiming?>? timing = null)
 {
     private TimeSpan _fadeStartedAt;
     private float _fadeFrom;
@@ -51,7 +59,7 @@ public sealed class AutoCue(IDeck deckA, IDeck deckB, Func<DeckId, Track?> deque
         }
 
         IDeck? active = ActiveDeck();
-        if (active is null || active.Remaining > CrossfadeDuration)
+        if (active is null || WallTimeLeft(active) > CrossfadeDuration)
             return;
 
         IDeck incoming = active.Id == DeckId.A ? deckB : deckA;
@@ -60,6 +68,9 @@ public sealed class AutoCue(IDeck deckA, IDeck deckB, Func<DeckId, Track?> deque
 
         incoming.Load(next);
         incoming.Play();
+        // After Play: some backends restart a stopped player from the top.
+        if (Timing(next)?.Start is { } start && start > TimeSpan.Zero)
+            incoming.Seek(start);
 
         _outgoing = active;
         _fadeFrom = CrossfaderPosition;
@@ -69,6 +80,21 @@ public sealed class AutoCue(IDeck deckA, IDeck deckB, Func<DeckId, Track?> deque
 
         AdvanceFade(now);
     }
+
+    /// <summary>
+    /// Real time until the deck's last real sound. Divided by tempo: the original
+    /// compared track time with the fade length, so a sped-up track faded late.
+    /// </summary>
+    private TimeSpan WallTimeLeft(IDeck deck)
+    {
+        TimeSpan end = deck.Duration;
+        if (deck.Track is { } t && Timing(t)?.End is { } last && (end <= TimeSpan.Zero || last < end))
+            end = last;
+        float tempo = deck.Tempo > 0 ? deck.Tempo : 1f;
+        return (end - deck.Position) / tempo;
+    }
+
+    private TrackTiming? Timing(Track track) => timing?.Invoke(track);
 
     /// <summary>Whichever deck is currently playing and in front on the fader.</summary>
     private IDeck? ActiveDeck()
