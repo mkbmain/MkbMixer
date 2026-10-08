@@ -39,7 +39,16 @@ adb install -r dist/mkb-mixer-1.0-release.apk
 
 It is signed with your local debug key unless `ANDROID_KEYSTORE`,
 `ANDROID_KEY_ALIAS` and `ANDROID_KEYSTORE_PASSWORD` are set; see the top of the
-script. For a quick edit-and-run loop with a tablet connected over USB:
+script.
+
+CI builds a Release APK on every push and PR (the `mkb-mixer-apk` artifact on the
+run), and pushing a `v*` tag attaches it to a GitHub release. To sign those with
+your release key, add the repository secrets `ANDROID_KEYSTORE_BASE64`
+(`base64 -w0 release.keystore`), `ANDROID_KEY_ALIAS`, `ANDROID_KEYSTORE_PASSWORD`
+and optionally `ANDROID_KEY_PASSWORD`; without them CI signs with a throwaway
+debug key.
+
+For a quick edit-and-run loop with a tablet connected over USB:
 
 ```bash
 dotnet build src/Mkb.Mixer.App.Android -t:Run
