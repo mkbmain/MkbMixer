@@ -1,8 +1,11 @@
 <Styles xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:ctrl="using:Mkb.Mixer.App.Controls"
-        xmlns:views="using:Mkb.Mixer.App.Views">
+        xmlns:views="using:Mkb.Mixer.App.Views"
+        xmlns:vm="using:Mkb.Mixer.App.ViewModels"
+        xmlns:conv="using:Mkb.Mixer.App.Converters">
   <Styles.Resources>
+    <conv:HotCueBrushConverter x:Key="HotCueBrush" />
     <!-- Gold is the one deliberate carry-over from the original's black-and-gold chrome. -->
     <Color x:Key="AccentColor">#FFC83C</Color>
     <SolidColorBrush x:Key="Accent" Color="#FFC83C" />
@@ -111,6 +114,39 @@
     <Setter Property="HorizontalContentAlignment" Value="Center" />
   </Style>
 
+  <Style Selector="Grid.bpmrow">
+    <Setter Property="Margin" Value="0,8,0,0" />
+  </Style>
+
+  <!-- In a style, not on the element, so the phone style below can move it. -->
+  <Style Selector="ItemsControl.hotcues">
+    <Setter Property="Grid.Column" Value="5" />
+  </Style>
+
+  <Style Selector="Button.bpm">
+    <Setter Property="FontFamily" Value="monospace" />
+    <Setter Property="FontSize" Value="12" />
+    <Setter Property="Padding" Value="6,2" />
+    <Setter Property="MinWidth" Value="88" />
+    <Setter Property="HorizontalContentAlignment" Value="Center" />
+  </Style>
+
+  <Style Selector="Button.hotcue">
+    <Setter Property="Width" Value="30" />
+    <Setter Property="Height" Value="24" />
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="FontSize" Value="12" />
+    <Setter Property="BorderThickness" Value="2" />
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="HorizontalContentAlignment" Value="Center" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+  </Style>
+
+  <Style Selector="Button.hotcue.set" x:DataType="vm:HotCueSlot">
+    <Setter Property="Background" Value="{Binding Index, Converter={StaticResource HotCueBrush}}" />
+    <Setter Property="Foreground" Value="#0E1013" />
+  </Style>
+
   <!-- Tablet. The deck row sizes to its content, which left the library only a
        couple of rows, so on touch the deck folds its title into the header row and
        its times into the transport row, and caps the playlist at about three tracks. -->
@@ -132,9 +168,18 @@
     <Setter Property="VerticalAlignment" Value="Center" />
   </Style>
 
+  <Style Selector=".touch Button.hotcue">
+    <Setter Property="Width" Value="40" />
+    <Setter Property="Height" Value="34" />
+  </Style>
+
+  <Style Selector=".touch Button.nudge">
+    <Setter Property="MinWidth" Value="40" />
+  </Style>
+
   <Style Selector=".touch ListBox.playlist">
-    <Setter Property="MinHeight" Value="60" />
-    <Setter Property="MaxHeight" Value="96" />
+    <Setter Property="MinHeight" Value="48" />
+    <Setter Property="MaxHeight" Value="60" />
   </Style>
 
   <Style Selector=".touch ListBox.playlist ListBoxItem">
@@ -187,6 +232,13 @@
   </Style>
 
   <!-- On the playlists tab each list fills its half of the screen. -->
+  <Style Selector=".phone ItemsControl.hotcues">
+    <Setter Property="Grid.Row" Value="1" />
+    <Setter Property="Grid.Column" Value="0" />
+    <Setter Property="Grid.ColumnSpan" Value="6" />
+    <Setter Property="Margin" Value="0,8,0,0" />
+  </Style>
+
   <Style Selector=".phone ListBox.playlist">
     <Setter Property="MaxHeight" Value="Infinity" />
   </Style>

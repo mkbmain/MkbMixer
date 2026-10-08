@@ -23,8 +23,9 @@
     <TabControl Grid.Row="1" Classes="phonetabs" TabStripPlacement="Bottom">
 
       <TabItem Header="MIX">
+        <!-- The touch scroll bar is always shown and overlays the content, so the right margin leaves it a gutter. -->
         <ScrollViewer>
-          <StackPanel Margin="10" Spacing="10">
+          <StackPanel Margin="10,10,28,10" Spacing="10">
             <views:DeckView DataContext="{Binding DeckA}" />
 
             <Border Classes="panel">
