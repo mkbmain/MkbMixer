@@ -22,7 +22,15 @@ public sealed class FakeDeck(DeckId id) : IDeck
     public void SetRemaining(TimeSpan remaining) => Position = Duration - remaining;
 
     public void Load(Track track) { Track = track; Duration = track.Duration; Position = TimeSpan.Zero; LoadCount++; }
-    public void Play() { State = PlaybackState.Playing; PlayCount++; }
+    /// <summary>Mimics a backend that restarts a stopped player from the top when it plays.</summary>
+    public bool RewindsOnPlayFromStop { get; set; }
+
+    public void Play()
+    {
+        if (RewindsOnPlayFromStop && State == PlaybackState.Stopped) Position = TimeSpan.Zero;
+        State = PlaybackState.Playing;
+        PlayCount++;
+    }
     public void Pause() => State = PlaybackState.Paused;
     public void Stop() { State = PlaybackState.Stopped; Position = TimeSpan.Zero; }
     public void Seek(TimeSpan position) => Position = position;

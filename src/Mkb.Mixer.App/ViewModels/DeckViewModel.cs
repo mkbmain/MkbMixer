@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Linq;
@@ -117,6 +118,58 @@ public sealed partial class DeckViewModel : ViewModelBase
     {
         TrackInfo? info = _deck.Track is { } t ? _analysis.Store.Get(t.Path) : null;
         TrackBpm = info?.DisplayBpm;
+        foreach (HotCueSlot slot in HotCues)
+            slot.Seconds = info?.HotCueSeconds[slot.Index];
+        UpdateCueFractions();
+    }
+
+    public IReadOnlyList<HotCueSlot> HotCues { get; } =
+        Enumerable.Range(0, TrackInfo.HotCueCount).Select(i => new HotCueSlot(i)).ToArray();
+
+    /// <summary>Each slot's position as 0..1 of the track, for the waveform markers.</summary>
+    public double?[] CueFractions { get; private set; } = new double?[TrackInfo.HotCueCount];
+
+    private TimeSpan _cueFractionsDuration;
+
+    /// <summary>Sets an empty slot at the playhead, or jumps to a set one keeping play/stop as it is.</summary>
+    [RelayCommand]
+    private void HotCue(HotCueSlot slot)
+    {
+        if (_deck.Track is not { } t) return;
+        if (slot.Seconds is { } seconds)
+        {
+            _deck.Seek(TimeSpan.FromSeconds(seconds));
+            Refresh();
+            return;
+        }
+        slot.Seconds = _deck.Position.TotalSeconds;
+        SaveHotCue(t, slot);
+    }
+
+    [RelayCommand]
+    private void ClearHotCue(HotCueSlot slot)
+    {
+        if (_deck.Track is not { } t || !slot.IsSet) return;
+        slot.Seconds = null;
+        SaveHotCue(t, slot);
+    }
+
+    private void SaveHotCue(Track track, HotCueSlot slot)
+    {
+        _analysis.Store.Update(track.Path, i => i.WithHotCue(slot.Index, slot.Seconds));
+        UpdateCueFractions();
+    }
+
+    private void UpdateCueFractions()
+    {
+        TimeSpan duration = _deck.Duration;
+        _cueFractionsDuration = duration;
+        CueFractions = HotCues
+            .Select(c => c.Seconds is { } s && duration > TimeSpan.Zero
+                ? Math.Clamp(s / duration.TotalSeconds, 0, 1)
+                : (double?)null)
+            .ToArray();
+        OnPropertyChanged(nameof(CueFractions));
     }
 
     public DeckId Id => _deck.Id;
@@ -234,7 +287,12 @@ public sealed partial class DeckViewModel : ViewModelBase
             return;
         }
 
+        bool fromStop = _deck.State == PlaybackState.Stopped;
+        TimeSpan at = _deck.Position;
         _deck.Play();
+        // Some backends restart a stopped player from the top; keep a hot cue
+        // jump made while stopped.
+        if (fromStop && at > TimeSpan.Zero) _deck.Seek(at);
         Refresh();
     }
 
@@ -328,6 +386,7 @@ public sealed partial class DeckViewModel : ViewModelBase
         }
         IsPlaying = _deck.State == PlaybackState.Playing;
         TimeSpan pos = _deck.Position, dur = _deck.Duration;
+        if (dur != _cueFractionsDuration) UpdateCueFractions();
         Elapsed = Format(pos);
         Remaining = "-" + Format(dur - pos);
         Progress = dur > TimeSpan.Zero ? pos.TotalSeconds / dur.TotalSeconds : 0;
