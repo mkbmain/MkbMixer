@@ -69,9 +69,26 @@ public sealed class FakeAudioEngine : IAudioEngine
             last is null ? null : TimeSpan.FromSeconds(last.Value));
     }
 
+    /// <summary>Paths whose analysis runs until cancelled, as a long decode would.</summary>
+    public HashSet<string> Blocking { get; } = [];
+
+    /// <summary>Set once a blocking analysis has noticed its cancellation and stopped.</summary>
+    public bool BlockingAnalysisStopped { get; private set; }
+
     public Task<TrackAnalysis> AnalyseAsync(string path, CancellationToken ct = default)
     {
         lock (AnalysedPaths) AnalysedPaths.Add(path);
+        if (Blocking.Contains(path))
+            return Task.Run(async () =>
+            {
+                try { await Task.Delay(Timeout.Infinite, ct); return Analysis(); }
+                finally
+                {
+                    // Long enough that a Dispose which did not wait would see it still running.
+                    Thread.Sleep(100);
+                    BlockingAnalysisStopped = true;
+                }
+            }, CancellationToken.None);
         if (Throwing.Contains(path)) throw new InvalidOperationException($"cannot decode {path}");
         return Task.FromResult(Analyses.TryGetValue(path, out TrackAnalysis? a) ? a : Analysis());
     }

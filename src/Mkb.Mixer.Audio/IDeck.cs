@@ -32,6 +32,11 @@ public interface IDeck : IDisposable
     /// </summary>
     float Tempo { get; set; }
 
+    /// <summary>
+    /// Opens a track, replacing whatever was loaded. Throws if the file cannot be
+    /// opened or decoded (moved, deleted, on a removed SD card, corrupt); the deck
+    /// is then left empty rather than holding a track it cannot play.
+    /// </summary>
     void Load(Track track);
     void Play();
     void Pause();

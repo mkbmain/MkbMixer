@@ -87,6 +87,16 @@ public sealed class AutoCue(
     /// <summary>Raised whenever the auto-cue moves the fader, so the UI can follow along.</summary>
     public event EventHandler<float>? CrossfaderMoved;
 
+    /// <summary>Raised with a message when a queued track could not be opened and was skipped.</summary>
+    public event EventHandler<string>? LoadFailed;
+
+    /// <summary>How many unopenable tracks in a row one transition skips before giving up on it.</summary>
+    public const int MaxLoadAttempts = 5;
+
+    /// <summary>Set when every queued track failed to open; holds the outgoing track that happened on.</summary>
+    private bool _gaveUp;
+    private Track? _gaveUpAfter;
+
     /// <param name="now">A monotonic clock reading. Only differences between calls matter.</param>
     public void Tick(TimeSpan now)
     {
@@ -104,11 +114,16 @@ public sealed class AutoCue(
         if (active is null || WallTimeLeft(active) > CrossfadeDuration)
             return;
 
-        IDeck incoming = active.Id == DeckId.A ? deckB : deckA;
-        if (dequeueNext(incoming.Id) is not { } next)
-            return; // nothing queued, so let the current track simply run out
+        // Every queued track failed last time; retrying each tick would churn the
+        // queue until this track ends.
+        if (_gaveUp && ReferenceEquals(active.Track, _gaveUpAfter))
+            return;
+        _gaveUp = false;
 
-        incoming.Load(next);
+        IDeck incoming = active.Id == DeckId.A ? deckB : deckA;
+        if (LoadNext(incoming, active) is not { } next)
+            return; // nothing playable queued, so let the current track simply run out
+
         _matched = TryMatchTempo(active, incoming, next);
         _incoming = incoming;
         incoming.Play();
@@ -123,6 +138,32 @@ public sealed class AutoCue(
         State = AutoCueState.Transitioning;
 
         AdvanceFade(now);
+    }
+
+    /// <summary>
+    /// Loads the incoming deck's next queued track, skipping any that cannot be
+    /// opened. A moved or deleted file must not throw out of the UI timer that
+    /// drives <see cref="Tick"/>.
+    /// </summary>
+    private Track? LoadNext(IDeck incoming, IDeck active)
+    {
+        for (int attempt = 0; attempt < MaxLoadAttempts; attempt++)
+        {
+            if (dequeueNext(incoming.Id) is not { } next)
+                return null;
+            try
+            {
+                incoming.Load(next);
+                return next;
+            }
+            catch (Exception e)
+            {
+                LoadFailed?.Invoke(this, $"Auto-cue skipped {next.Display}: {e.Message}");
+            }
+        }
+        _gaveUp = true;
+        _gaveUpAfter = active.Track;
+        return null;
     }
 
     /// <summary>

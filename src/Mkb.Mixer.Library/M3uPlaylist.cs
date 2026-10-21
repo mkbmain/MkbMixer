@@ -20,15 +20,21 @@ public static class M3uPlaylist
         if (!string.IsNullOrEmpty(dir))
             Directory.CreateDirectory(dir);
 
-        using var writer = new StreamWriter(path, append: false);
-        writer.WriteLine(Header);
-        foreach (Track t in tracks)
+        // Written beside and moved over, as SettingsStore does: Android saves on
+        // every pause, and a kill mid-write would otherwise truncate the playlist.
+        string temp = path + ".tmp";
+        using (var writer = new StreamWriter(temp, append: false))
         {
-            int seconds = t.Duration > TimeSpan.Zero ? (int)t.Duration.TotalSeconds : -1;
-            string label = t.Artist is { Length: > 0 } ? $"{t.Artist} - {t.Title}" : t.Title;
-            writer.WriteLine($"{InfoPrefix}{seconds},{label}");
-            writer.WriteLine(t.Path);
+            writer.WriteLine(Header);
+            foreach (Track t in tracks)
+            {
+                int seconds = t.Duration > TimeSpan.Zero ? (int)t.Duration.TotalSeconds : -1;
+                string label = t.Artist is { Length: > 0 } ? $"{t.Artist} - {t.Title}" : t.Title;
+                writer.WriteLine($"{InfoPrefix}{seconds},{label}");
+                writer.WriteLine(t.Path);
+            }
         }
+        File.Move(temp, path, overwrite: true);
     }
 
     public static IEnumerable<Track> Load(string path)

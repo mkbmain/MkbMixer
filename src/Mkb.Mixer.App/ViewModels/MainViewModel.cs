@@ -64,12 +64,13 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
         _autoCue = new AutoCue(engine.DeckA, engine.DeckB, DequeueFor, TimingFor)
         {
             Enabled = _settings.AutoCueEnabled,
-            CrossfadeDuration = TimeSpan.FromSeconds(_settings.CrossfadeSeconds),
+            CrossfadeDuration = TimeSpan.FromSeconds(Math.Max(1, _settings.CrossfadeSeconds)),
             CrossfaderPosition = _settings.CrossfaderPosition
         };
         TempoMatch = _settings.AutoCueTempoMatch;
         DeckA.UserChangedTempo += (_, _) => _autoCue.CancelGlide(DeckId.A);
         DeckB.UserChangedTempo += (_, _) => _autoCue.CancelGlide(DeckId.B);
+        _autoCue.LoadFailed += (_, why) => StatusMessage = why;
         _autoCue.CrossfaderMoved += (_, pos) =>
         {
             // The auto-cue owns the fader during a transition; echo it to the slider
@@ -81,7 +82,8 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
 
         _crossfaderPosition = _settings.CrossfaderPosition;
         _autoCueEnabled = _settings.AutoCueEnabled;
-        _crossfadeSeconds = _settings.CrossfadeSeconds;
+        // A hand-edited or old settings file can hold 0, which would make every fade instant.
+        _crossfadeSeconds = Math.Max(1, _settings.CrossfadeSeconds);
         _analyseLibraryBpm = _settings.AnalyseLibraryBpm ?? !App.UsePhoneLayout;
         Analysis.Analysed += (_, path) => { _timings.Remove(path); OnAnalysed(path); };
         DeckA.BpmCorrected += (_, path) => { _timings.Remove(path); OnAnalysed(path); };
@@ -655,19 +657,34 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
     [RelayCommand]
     private void SavePlaylists()
     {
-        string dir = PlaylistDirectory();
-        M3uPlaylist.Save(Path.Combine(dir, "deck-a.m3u"), DeckA.Playlist);
-        M3uPlaylist.Save(Path.Combine(dir, "deck-b.m3u"), DeckB.Playlist);
-        StatusMessage = $"Playlists saved to {dir}";
+        // Also runs on every Android pause: a full or read-only disk must not crash.
+        try
+        {
+            string dir = PlaylistDirectory();
+            M3uPlaylist.Save(Path.Combine(dir, "deck-a.m3u"), DeckA.Playlist);
+            M3uPlaylist.Save(Path.Combine(dir, "deck-b.m3u"), DeckB.Playlist);
+            StatusMessage = $"Playlists saved to {dir}";
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            StatusMessage = $"Could not save playlists: {e.Message}";
+        }
     }
 
     [RelayCommand]
     private void LoadPlaylists()
     {
-        string dir = PlaylistDirectory();
-        Restore(DeckA, Path.Combine(dir, "deck-a.m3u"));
-        Restore(DeckB, Path.Combine(dir, "deck-b.m3u"));
-        StatusMessage = "Playlists loaded";
+        try
+        {
+            string dir = PlaylistDirectory();
+            Restore(DeckA, Path.Combine(dir, "deck-a.m3u"));
+            Restore(DeckB, Path.Combine(dir, "deck-b.m3u"));
+            StatusMessage = "Playlists loaded";
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            StatusMessage = $"Could not load playlists: {e.Message}";
+        }
 
         static void Restore(DeckViewModel deck, string path)
         {
@@ -678,13 +695,15 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
         }
     }
 
-    private static string PlaylistDirectory()
+    /// <summary>Where playlists are kept. Settable so tests stay out of the real one.</summary>
+    public string PlaylistFolder { get; init; } = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+        "MkbMixer", "playlists");
+
+    private string PlaylistDirectory()
     {
-        string dir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "MkbMixer", "playlists");
-        Directory.CreateDirectory(dir);
-        return dir;
+        Directory.CreateDirectory(PlaylistFolder);
+        return PlaylistFolder;
     }
 
     /// <summary>Persists settings and playlists on the way out.</summary>

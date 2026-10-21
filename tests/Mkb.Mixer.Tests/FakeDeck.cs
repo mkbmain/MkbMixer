@@ -21,7 +21,21 @@ public sealed class FakeDeck(DeckId id) : IDeck
     /// <summary>Test helper: position the playhead so this much time is left.</summary>
     public void SetRemaining(TimeSpan remaining) => Position = Duration - remaining;
 
-    public void Load(Track track) { Track = track; Duration = track.Duration; Position = TimeSpan.Zero; LoadCount++; }
+    /// <summary>Paths that fail to open, as a moved or corrupt file would.</summary>
+    public HashSet<string> Unloadable { get; } = [];
+
+    public void Load(Track track)
+    {
+        LoadCount++;
+        if (Unloadable.Contains(track.Path))
+        {
+            Track = null;
+            Duration = Position = TimeSpan.Zero;
+            State = PlaybackState.Stopped;
+            throw new FileNotFoundException($"Could not find file '{track.Path}'.", track.Path);
+        }
+        Track = track; Duration = track.Duration; Position = TimeSpan.Zero;
+    }
     /// <summary>Mimics a backend that restarts a stopped player from the top when it plays.</summary>
     public bool RewindsOnPlayFromStop { get; set; }
 
