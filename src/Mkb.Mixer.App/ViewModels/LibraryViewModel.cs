@@ -18,13 +18,17 @@ public sealed partial class LibraryViewModel : ViewModelBase, IDisposable
     private readonly TrackStore _tracks;
     private readonly AnalysisQueue _analysis;
     private readonly Func<double?> _audibleBpm;
+    private readonly Func<string, Track> _readTrack;
     private CancellationTokenSource? _scan;
 
     /// <param name="audibleBpm">The BPM the room is hearing, for the ≈ button.</param>
     /// <param name="lastFolder">Where the browser opens; the user's music folder when null.</param>
+    /// <param name="readTrack">Reads a file's tags. Injectable so tests can hold a read open.</param>
     public LibraryViewModel(TrackStore tracks, AnalysisQueue analysis, Func<double?> audibleBpm,
-                            string? lastFolder = null, bool analyseBpm = false)
+                            string? lastFolder = null, bool analyseBpm = false,
+                            Func<string, Track>? readTrack = null)
     {
+        _readTrack = readTrack ?? TrackMetadataReader.Read;
         _tracks = tracks;
         _analysis = analysis;
         _audibleBpm = audibleBpm;
@@ -154,19 +158,42 @@ public sealed partial class LibraryViewModel : ViewModelBase, IDisposable
     /// <summary>Lists the most recently played tracks that still exist, newest first.</summary>
     public async Task ShowRecentlyPlayedAsync()
     {
-        _scan?.Cancel();
-        _scan = new CancellationTokenSource();
-        CancellationToken ct = _scan.Token;
+        using CancellationTokenSource scan = BeginScan();
+        CancellationToken ct = scan.Token;
         try
         {
             var rows = await Task.Run(() => _tracks.RecentlyPlayed(RecentlyPlayedLimit)
                 .Where(File.Exists)
-                .Select(path => { ct.ThrowIfCancellationRequested(); return RowFor(TrackMetadataReader.Read(path)); })
+                .Select(path => { ct.ThrowIfCancellationRequested(); return RowFor(_readTrack(path)); })
                 .ToList(), ct);
+            ct.ThrowIfCancellationRequested();
             SetFolderRows(rows);
             Report($"{rows.Count} recently played track(s)");
         }
         catch (OperationCanceledException) { /* superseded by a newer selection */ }
+        finally { EndScan(scan); }
+    }
+
+    /// <summary>
+    /// Cancels whatever the browser was reading and makes this the current read.
+    /// Only the current read may change the list or the scanning indicator: an
+    /// older one can still be finishing a file when it is superseded.
+    /// </summary>
+    private CancellationTokenSource BeginScan()
+    {
+        _scan?.Cancel();
+        _scan = new CancellationTokenSource();
+        IsScanning = true;
+        return _scan;
+    }
+
+    private bool IsCurrent(CancellationTokenSource scan) => ReferenceEquals(_scan, scan);
+
+    private void EndScan(CancellationTokenSource scan)
+    {
+        if (!IsCurrent(scan)) return;
+        _scan = null;
+        IsScanning = false;
     }
 
     /// <summary>Replaces what the library lists, and queues it for background analysis.</summary>
@@ -181,12 +208,10 @@ public sealed partial class LibraryViewModel : ViewModelBase, IDisposable
     /// <summary>Lists one folder's audio files, reading tags off the UI thread.</summary>
     private async Task LoadFolderAsync(string path)
     {
-        _scan?.Cancel();
-        _scan = new CancellationTokenSource();
-        CancellationToken ct = _scan.Token;
+        using CancellationTokenSource scan = BeginScan();
+        CancellationToken ct = scan.Token;
 
         CurrentFolder = path;
-        IsScanning = true;
         Report($"Reading {path}…");
         SetFolderRows([]);
 
@@ -198,17 +223,19 @@ public sealed partial class LibraryViewModel : ViewModelBase, IDisposable
                 foreach (string file in Directory.EnumerateFiles(path).Where(SupportedFormats.IsAudio))
                 {
                     ct.ThrowIfCancellationRequested();
-                    list.Add(RowFor(TrackMetadataReader.Read(file)));
+                    list.Add(RowFor(_readTrack(file)));
                 }
                 return list;
             }, ct);
 
+            ct.ThrowIfCancellationRequested();
             SetFolderRows(found);
             Report($"{found.Count} track(s) in {Path.GetFileName(path)}");
         }
         catch (OperationCanceledException) { /* superseded by a newer selection */ }
-        catch (Exception ex) { Report($"Could not read {path}: {ex.Message}"); }
-        finally { IsScanning = false; }
+        catch (Exception ex) when (IsCurrent(scan)) { Report($"Could not read {path}: {ex.Message}"); }
+        catch (Exception) { /* superseded: the folder now shown is not this one */ }
+        finally { EndScan(scan); }
     }
 
     /// <summary>Recursively searches the current folder, replacing the original's blocking scan.</summary>
@@ -218,11 +245,9 @@ public sealed partial class LibraryViewModel : ViewModelBase, IDisposable
         if (string.IsNullOrWhiteSpace(SearchText)) { ApplyFilter(); return; }
         if (!Directory.Exists(CurrentFolder)) return;
 
-        _scan?.Cancel();
-        _scan = new CancellationTokenSource();
-        CancellationToken ct = _scan.Token;
+        using CancellationTokenSource scan = BeginScan();
+        CancellationToken ct = scan.Token;
 
-        IsScanning = true;
         Report($"Searching {CurrentFolder}…");
         SetFolderRows([]);
         string needle = SearchText;
@@ -233,7 +258,8 @@ public sealed partial class LibraryViewModel : ViewModelBase, IDisposable
             {
                 if (!Path.GetFileName(file).Contains(needle, StringComparison.OrdinalIgnoreCase))
                     continue;
-                LibraryRow row = RowFor(await Task.Run(() => TrackMetadataReader.Read(file), ct));
+                LibraryRow row = RowFor(await Task.Run(() => _readTrack(file), ct));
+                ct.ThrowIfCancellationRequested();
                 _folderRows.Add(row);
                 if (InBpmRange(row.Bpm)) BrowserRows.Add(row);
                 Report($"{BrowserRows.Count} match(es)…");
@@ -241,8 +267,10 @@ public sealed partial class LibraryViewModel : ViewModelBase, IDisposable
             QueueLibraryAnalysis();
             Report($"{BrowserRows.Count} match(es) for \"{needle}\"");
         }
-        catch (OperationCanceledException) { Report("Search cancelled"); }
-        finally { IsScanning = false; }
+        // Stopped by the user, not superseded by another folder.
+        catch (OperationCanceledException) when (IsCurrent(scan)) { Report("Search cancelled"); }
+        catch (OperationCanceledException) { }
+        finally { EndScan(scan); }
     }
 
     [RelayCommand]
