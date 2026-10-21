@@ -61,7 +61,12 @@ public sealed class SettingsStore
             string? dir = Path.GetDirectoryName(_path);
             if (!string.IsNullOrEmpty(dir))
                 Directory.CreateDirectory(dir);
-            File.WriteAllText(_path, JsonSerializer.Serialize(settings, Options));
+            // Written beside and moved over, as TrackStore does: Android saves on
+            // every pause, and a kill mid-write would otherwise truncate the file
+            // and silently reset every setting on the next launch.
+            string temp = _path + ".tmp";
+            File.WriteAllText(temp, JsonSerializer.Serialize(settings, Options));
+            File.Move(temp, _path, overwrite: true);
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {

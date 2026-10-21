@@ -67,6 +67,11 @@ jobs:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
+          # A v1.2.3 tag stamps version 1.2.3 (code 1002003), so each release
+          # installs as an upgrade over the last; other builds keep the dev version.
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            export MKB_VERSION="${GITHUB_REF_NAME#v}"
+          fi
           if [[ -n "$KEYSTORE_BASE64" ]]; then
             echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.keystore"
             export ANDROID_KEYSTORE="$RUNNER_TEMP/release.keystore"

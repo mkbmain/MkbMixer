@@ -430,20 +430,18 @@ public sealed class SoundFlowAudioEngine : IAudioEngine
                 using var stream = File.OpenRead(path);
                 var provider = new StreamDataProvider(_engine, Format, stream);
 
-                var samples = new List<float>(capacity: 1 << 20);
+                // Fed chunk by chunk: holding the whole decode costs ~21 MB a minute.
+                var analyser = new TrackAnalyser(Format.Channels, Format.SampleRate, provider.Length);
                 var buffer = new float[16384];
                 while (true)
                 {
                     ct.ThrowIfCancellationRequested();
                     int read = provider.ReadBytes(buffer);
                     if (read <= 0) break;
-                    samples.AddRange(buffer.AsSpan(0, read));
+                    analyser.Add(buffer.AsSpan(0, read));
                 }
 
-                return TrackAnalysis.FromSamples(
-                    System.Runtime.InteropServices.CollectionsMarshal.AsSpan(samples),
-                    Format.Channels,
-                    Format.SampleRate);
+                return analyser.Finish();
             }
             catch (OperationCanceledException) { throw; }
             catch

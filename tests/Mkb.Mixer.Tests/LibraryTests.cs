@@ -191,6 +191,34 @@ public class SettingsTests : IDisposable
     }
 
     [Fact]
+    public void AFailedSaveLeavesThePreviousSettingsIntact()
+    {
+        string path = Path.Combine(_dir, "settings.json");
+        var store = new SettingsStore(path);
+        store.Save(new AppSettings { CrossfadeSeconds = 12 });
+        // Nothing can be written where the temp file goes, as when storage fills up
+        // or the process dies mid-write.
+        Directory.CreateDirectory(path + ".tmp");
+
+        store.Save(new AppSettings { CrossfadeSeconds = 30 });
+
+        Assert.Equal(12, store.Load().CrossfadeSeconds);
+    }
+
+    [Fact]
+    public void SavingLeavesNoTempFileBehind()
+    {
+        string path = Path.Combine(_dir, "settings.json");
+        var store = new SettingsStore(path);
+
+        store.Save(new AppSettings());
+        store.Save(new AppSettings { CrossfadeSeconds = 9 });
+
+        Assert.Equal(["settings.json"], Directory.GetFiles(_dir).Select(Path.GetFileName));
+        Assert.Equal(9, store.Load().CrossfadeSeconds);
+    }
+
+    [Fact]
     public void CreatesTheDirectoryWhenSaving()
     {
         string path = Path.Combine(_dir, "nested", "deep", "settings.json");

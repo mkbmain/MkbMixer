@@ -12,6 +12,10 @@
 #   ANDROID_KEYSTORE_PASSWORD=...
 #   ANDROID_KEY_PASSWORD=...     (defaults to the keystore password)
 #
+# To stamp a release version (and a matching Android version code), set:
+#
+#   MKB_VERSION=1.2.3
+#
 # Install the result with:  adb install -r dist/<apk>
 
 set -euo pipefail
@@ -39,6 +43,27 @@ args=(
   # them separately (fast deployment), so the APK would not run on its own.
   -p:EmbedAssembliesIntoApk=true
 )
+
+# MKB_VERSION=1.2.3 (CI sets it from the v* tag) stamps the APK. Android only
+# upgrades over a lower version code, so the code is derived from the version:
+# 1.2.3 -> 1002003. A suffix such as -beta.1 is shown but does not change the code.
+# Without it, the csproj's development version (1.0, code 1) is used.
+VERSION="$(sed -n 's:.*<ApplicationDisplayVersion>\(.*\)</ApplicationDisplayVersion>.*:\1:p' "$PROJECT")"
+if [[ -n "${MKB_VERSION:-}" ]]; then
+  if [[ ! "$MKB_VERSION" =~ ^([0-9]+)\.([0-9]+)(\.([0-9]+))?(-[0-9A-Za-z.-]+)?$ ]]; then
+    echo "MKB_VERSION must look like 1.2 or 1.2.3 (optionally -suffix), not '$MKB_VERSION'" >&2
+    exit 2
+  fi
+  major=$((10#${BASH_REMATCH[1]})) minor=$((10#${BASH_REMATCH[2]})) patch=$((10#${BASH_REMATCH[4]:-0}))
+  if (( major > 2099 || minor > 999 || patch > 999 )); then
+    echo "MKB_VERSION $MKB_VERSION does not fit an Android version code (major <= 2099, minor and patch <= 999)" >&2
+    exit 2
+  fi
+  VERSION="$MKB_VERSION"
+  CODE=$(( major * 1000000 + minor * 1000 + patch ))
+  args+=(-p:ApplicationDisplayVersion="$VERSION" -p:ApplicationVersion="$CODE")
+  echo "Version $VERSION (code $CODE)"
+fi
 
 if [[ -n "${ANDROID_KEYSTORE:-}" ]]; then
   : "${ANDROID_KEY_ALIAS:?ANDROID_KEY_ALIAS must be set with ANDROID_KEYSTORE}"
@@ -72,7 +97,6 @@ if [[ -z "$APK" ]]; then
   exit 1
 fi
 
-VERSION="$(sed -n 's:.*<ApplicationDisplayVersion>\(.*\)</ApplicationDisplayVersion>.*:\1:p' "$PROJECT")"
 OUT="$DIST/mkb-mixer-${VERSION:-0}-$(echo "$CONFIG" | tr '[:upper:]' '[:lower:]').apk"
 
 mkdir -p "$DIST"
