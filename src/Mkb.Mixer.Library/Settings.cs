@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Mkb.Mixer.Audio;
 
 namespace Mkb.Mixer.Library;
@@ -23,12 +24,36 @@ public sealed class AppSettings
 
     /// <summary>Analyse library folders for BPM in the background. Null: on, except on phones.</summary>
     public bool? AnalyseLibraryBpm { get; set; }
+
+    /// <summary>
+    /// Pulls a hand-edited or old file back into range, so nothing downstream sees a
+    /// fade of 0 seconds, a fader past its end or an enum value that does not exist.
+    /// </summary>
+    internal AppSettings Normalised()
+    {
+        var defaults = new AppSettings();
+        CrossfadeSeconds = Math.Max(1, CrossfadeSeconds);
+        CrossfaderPosition = float.IsNaN(CrossfaderPosition) ? defaults.CrossfaderPosition : Math.Clamp(CrossfaderPosition, 0, 1);
+        CueMix = float.IsNaN(CueMix) ? defaults.CueMix : Math.Clamp(CueMix, 0, 1);
+        if (!Enum.IsDefined(CueMode)) CueMode = defaults.CueMode;
+        if (!Enum.IsDefined(AutoCueTempoMatch)) AutoCueTempoMatch = defaults.AutoCueTempoMatch;
+        if (!double.IsFinite(WindowWidth) || WindowWidth <= 0) WindowWidth = defaults.WindowWidth;
+        if (!double.IsFinite(WindowHeight) || WindowHeight <= 0) WindowHeight = defaults.WindowHeight;
+        return this;
+    }
 }
 
 /// <summary>Persists <see cref="AppSettings"/> as JSON, defaulting rather than throwing.</summary>
 public sealed class SettingsStore
 {
-    private static readonly JsonSerializerOptions Options = new() { WriteIndented = true };
+    // Enums by name, so reordering one cannot remap a saved choice; numbers from
+    // older files still read. Named floats, so a NaN never makes Save throw.
+    private static readonly JsonSerializerOptions Options = new()
+    {
+        WriteIndented = true,
+        Converters = { new JsonStringEnumConverter() },
+        NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals
+    };
     private readonly string _path;
 
     public SettingsStore(string path) => _path = path;
@@ -44,8 +69,8 @@ public sealed class SettingsStore
         {
             if (!File.Exists(_path))
                 return new AppSettings();
-            return JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(_path), Options)
-                   ?? new AppSettings();
+            return (JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(_path), Options)
+                    ?? new AppSettings()).Normalised();
         }
         catch (Exception e) when (e is JsonException or IOException or UnauthorizedAccessException)
         {

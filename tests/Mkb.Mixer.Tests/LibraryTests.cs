@@ -148,6 +148,28 @@ public class LibraryScannerTests : IDisposable
     }
 }
 
+public class TrackMetadataReaderTests : IDisposable
+{
+    private readonly string _dir = Directory.CreateTempSubdirectory("mkb-tags").FullName;
+    public void Dispose() => Directory.Delete(_dir, recursive: true);
+
+    /// <summary>An Ogg page announcing Opus with the header cut short. TagLib throws ArgumentOutOfRangeException.</summary>
+    private static readonly byte[] TruncatedOpus =
+        [.. "OggS"u8, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 8, .. "OpusHead"u8];
+
+    [Fact]
+    public void AFileThatTripsUpTheTagParserFallsBackToItsFileName()
+    {
+        string path = Path.Combine(_dir, "Broken Song.opus");
+        File.WriteAllBytes(path, TruncatedOpus);
+
+        Track track = TrackMetadataReader.Read(path);
+
+        Assert.Equal("Broken Song", track.Title);
+        Assert.Equal(path, track.Path);
+    }
+}
+
 public class SettingsTests : IDisposable
 {
     private readonly string _dir = Directory.CreateTempSubdirectory("mkb-settings").FullName;
@@ -188,6 +210,58 @@ public class SettingsTests : IDisposable
         string path = Path.Combine(_dir, "bad.json");
         File.WriteAllText(path, "{ this is not json");
         Assert.Equal(20, new SettingsStore(path).Load().CrossfadeSeconds);
+    }
+
+    [Fact]
+    public void OutOfRangeValuesInAHandEditedFileAreClampedOrReset()
+    {
+        string path = Path.Combine(_dir, "settings.json");
+        File.WriteAllText(path, """
+            { "CrossfadeSeconds": 0, "CrossfaderPosition": 7.5, "CueMix": -2,
+              "CueMode": 42, "AutoCueTempoMatch": 9, "WindowWidth": -1, "WindowHeight": 0 }
+            """);
+
+        AppSettings loaded = new SettingsStore(path).Load();
+
+        Assert.Equal(1, loaded.CrossfadeSeconds);
+        Assert.Equal(1f, loaded.CrossfaderPosition);
+        Assert.Equal(0f, loaded.CueMix);
+        Assert.Equal(CueMode.Off, loaded.CueMode);
+        Assert.Equal(TempoMatchMode.Off, loaded.AutoCueTempoMatch);
+        Assert.Equal(new AppSettings().WindowWidth, loaded.WindowWidth);
+        Assert.Equal(new AppSettings().WindowHeight, loaded.WindowHeight);
+    }
+
+    [Fact]
+    public void ANotANumberFaderPositionFallsBackToTheCentre()
+    {
+        string path = Path.Combine(_dir, "settings.json");
+        File.WriteAllText(path, """{ "CrossfaderPosition": "NaN", "CrossfadeSeconds": 12 }""");
+
+        AppSettings loaded = new SettingsStore(path).Load();
+
+        Assert.Equal(0.5f, loaded.CrossfaderPosition);
+        Assert.Equal(12, loaded.CrossfadeSeconds);   // the rest of the file survives
+    }
+
+    [Fact]
+    public void EnumsAreSavedByNameSoReorderingThemCannotRemapSettings()
+    {
+        string path = Path.Combine(_dir, "settings.json");
+        new SettingsStore(path).Save(new AppSettings { CueMode = CueMode.Split, AutoCueTempoMatch = TempoMatchMode.MatchAndGlide });
+
+        string json = File.ReadAllText(path);
+        Assert.Contains("\"Split\"", json);
+        Assert.Contains("\"MatchAndGlide\"", json);
+    }
+
+    [Fact]
+    public void EnumsSavedAsNumbersByOlderVersionsStillLoad()
+    {
+        string path = Path.Combine(_dir, "settings.json");
+        File.WriteAllText(path, $$"""{ "CueMode": {{(int)CueMode.Split}} }""");
+
+        Assert.Equal(CueMode.Split, new SettingsStore(path).Load().CueMode);
     }
 
     [Fact]

@@ -64,7 +64,7 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
         _autoCue = new AutoCue(engine.DeckA, engine.DeckB, DequeueFor, TimingFor)
         {
             Enabled = _settings.AutoCueEnabled,
-            CrossfadeDuration = TimeSpan.FromSeconds(Math.Max(1, _settings.CrossfadeSeconds)),
+            CrossfadeDuration = TimeSpan.FromSeconds(_settings.CrossfadeSeconds),
             CrossfaderPosition = _settings.CrossfaderPosition
         };
         TempoMatch = _settings.AutoCueTempoMatch;
@@ -82,8 +82,7 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
 
         _crossfaderPosition = _settings.CrossfaderPosition;
         _autoCueEnabled = _settings.AutoCueEnabled;
-        // A hand-edited or old settings file can hold 0, which would make every fade instant.
-        _crossfadeSeconds = Math.Max(1, _settings.CrossfadeSeconds);
+        _crossfadeSeconds = _settings.CrossfadeSeconds;   // at least 1: SettingsStore.Load sees to that
         _analyseLibraryBpm = _settings.AnalyseLibraryBpm ?? !App.UsePhoneLayout;
         Analysis.Analysed += (_, path) => { _timings.Remove(path); OnAnalysed(path); };
         DeckA.BpmCorrected += (_, path) => { _timings.Remove(path); OnAnalysed(path); };
