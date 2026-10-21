@@ -22,7 +22,7 @@ public partial class PhoneView : UserControl
         Loaded += (_, _) =>
         {
             if (DataContext is not MainViewModel vm) return;
-            vm.LoadRoots();
+            vm.Library.LoadRoots();
             vm.Start();   // the transport clock must be created on the UI thread
         };
     }

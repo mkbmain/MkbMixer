@@ -87,7 +87,7 @@ public class MainActivity : AvaloniaMainActivity
         // The tree was built before access was granted, so it is missing files.
         int storage = Array.IndexOf(permissions, StoragePermission);
         if (storage >= 0 && grantResults[storage] == Permission.Granted)
-            Dispatcher.UIThread.Post(() => CurrentViewModel()?.LoadRoots());
+            Dispatcher.UIThread.Post(() => CurrentViewModel()?.Library.LoadRoots());
     }
 
     protected override void OnResume()
@@ -112,6 +112,6 @@ public class MainActivity : AvaloniaMainActivity
     private sealed class VolumeChangedReceiver : BroadcastReceiver
     {
         public override void OnReceive(Context? context, Intent? intent) =>
-            Dispatcher.UIThread.Post(() => CurrentViewModel()?.LoadRoots());
+            Dispatcher.UIThread.Post(() => CurrentViewModel()?.Library.LoadRoots());
     }
 }

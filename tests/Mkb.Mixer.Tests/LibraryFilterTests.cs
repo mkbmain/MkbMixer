@@ -18,22 +18,22 @@ public class LibraryFilterTests : IDisposable
         store.SetAnalysis(paths[0], FakeAudioEngine.Analysis(120));
         store.SetAnalysis(paths[1], FakeAudioEngine.Analysis(128));
         var vm = new MainViewModel(engine, new SettingsStore(Path.Combine(_dir, "s.json")), store,
-            post: a => a(), manualAnalysis: true) { AnalyseLibraryBpm = analyse };
-        await vm.BrowseFolderCommand.ExecuteAsync(_dir);
+            post: a => a(), manualAnalysis: true) { Library = { AnalyseLibraryBpm = analyse } };
+        await vm.Library.BrowseFolderCommand.ExecuteAsync(_dir);
         return (vm, engine, paths);
     }
 
-    private static string[] Titles(MainViewModel vm) => vm.BrowserRows.Select(r => r.Track.Title).Order().ToArray();
+    private static string[] Titles(MainViewModel vm) => vm.Library.BrowserRows.Select(r => r.Track.Title).Order().ToArray();
 
     [Fact]
     public async Task ARangeShowsOnlyTracksInsideItAndHidesUnknowns()
     {
         var (vm, _, _) = await Library();
 
-        vm.BpmMin = 125; vm.BpmMax = 130;
+        vm.Library.BpmMin = 125; vm.Library.BpmMax = 130;
         Assert.Equal(["b"], Titles(vm));
 
-        vm.BpmMin = null; vm.BpmMax = null;
+        vm.Library.BpmMin = null; vm.Library.BpmMax = null;
         Assert.Equal(["a", "b", "c"], Titles(vm));
     }
 
@@ -42,7 +42,7 @@ public class LibraryFilterTests : IDisposable
     {
         var (vm, _, _) = await Library();
 
-        vm.BpmMin = 130; vm.BpmMax = 125;
+        vm.Library.BpmMin = 130; vm.Library.BpmMax = 125;
 
         Assert.Equal(["b"], Titles(vm));
     }
@@ -52,7 +52,7 @@ public class LibraryFilterTests : IDisposable
     {
         var (vm, _, _) = await Library();
 
-        vm.BpmMin = 125;
+        vm.Library.BpmMin = 125;
 
         Assert.Equal(["b"], Titles(vm));
     }
@@ -66,10 +66,10 @@ public class LibraryFilterTests : IDisposable
         await vm.DeckA.PlayCommand.ExecuteAsync(null);
         vm.Tick(TimeSpan.Zero);
 
-        vm.MatchBpmCommand.Execute(null);
+        vm.Library.MatchBpmCommand.Execute(null);
 
-        Assert.Equal(117.5m, vm.BpmMin);
-        Assert.Equal(132.5m, vm.BpmMax);
+        Assert.Equal(117.5m, vm.Library.BpmMin);
+        Assert.Equal(132.5m, vm.Library.BpmMax);
     }
 
     [Fact]
@@ -95,13 +95,13 @@ public class LibraryFilterTests : IDisposable
     {
         var (vm, engine, paths) = await Library(analyse: true);
         engine.Analyses[paths[2]] = FakeAudioEngine.Analysis(127);
-        vm.BpmMin = 125; vm.BpmMax = 130;
+        vm.Library.BpmMin = 125; vm.Library.BpmMax = 130;
         Assert.Equal(["b"], Titles(vm));
 
         await vm.Analysis.DrainAsync();
 
         Assert.Equal(["b", "c"], Titles(vm));
-        Assert.Equal(127, vm.BrowserRows.Single(r => r.Track.Title == "c").Bpm);
+        Assert.Equal(127, vm.Library.BrowserRows.Single(r => r.Track.Title == "c").Bpm);
     }
 
     [Fact]
@@ -116,11 +116,11 @@ public class LibraryFilterTests : IDisposable
         store.SetAnalysis(nested[0], FakeAudioEngine.Analysis(128));
         store.SetAnalysis(nested[1], FakeAudioEngine.Analysis(150));
         var vm = new MainViewModel(new FakeAudioEngine(), new SettingsStore(Path.Combine(_dir, "s.json")), store,
-            post: a => a(), manualAnalysis: true) { AnalyseLibraryBpm = false, CurrentFolder = _dir };
-        vm.BpmMin = 125; vm.BpmMax = 130;
-        vm.SearchText = "_";
+            post: a => a(), manualAnalysis: true) { Library = { AnalyseLibraryBpm = false, CurrentFolder = _dir } };
+        vm.Library.BpmMin = 125; vm.Library.BpmMax = 130;
+        vm.Library.SearchText = "_";
 
-        await vm.SearchCommand.ExecuteAsync(null);
+        await vm.Library.SearchCommand.ExecuteAsync(null);
 
         Assert.Equal(["n_in", "t_in"], Titles(vm));
     }
@@ -130,18 +130,18 @@ public class LibraryFilterTests : IDisposable
     {
         var vm = new MainViewModel(new FakeAudioEngine(), new SettingsStore(Path.Combine(_dir, "fresh.json")));
 
-        Assert.True(vm.AnalyseLibraryBpm);   // tests run with App.UsePhoneLayout false
+        Assert.True(vm.Library.AnalyseLibraryBpm);   // tests run with App.UsePhoneLayout false
     }
 
     [Fact]
     public async Task AFileNameOnlySearchHitSurvivesABpmRangeChange()
     {
         var (vm, _, _) = await Library();
-        vm.SearchText = ".mp3";   // in every file name, in no title
-        await vm.SearchCommand.ExecuteAsync(null);
+        vm.Library.SearchText = ".mp3";   // in every file name, in no title
+        await vm.Library.SearchCommand.ExecuteAsync(null);
         Assert.Equal(["a", "b", "c"], Titles(vm));
 
-        vm.BpmMin = 115; vm.BpmMax = 125;
+        vm.Library.BpmMin = 115; vm.Library.BpmMax = 125;
 
         Assert.Equal(["a"], Titles(vm));
     }
@@ -151,10 +151,10 @@ public class LibraryFilterTests : IDisposable
     {
         var (vm, engine, paths) = await Library();
         engine.Analyses[paths[0]] = FakeAudioEngine.Analysis(120);
-        await vm.DeckA.LoadAsync(vm.BrowserRows.Single(r => r.Track.Path == paths[0]).Track);
+        await vm.DeckA.LoadAsync(vm.Library.BrowserRows.Single(r => r.Track.Path == paths[0]).Track);
 
         vm.DeckA.HalveBpmCommand.Execute(null);
 
-        Assert.Equal(60, vm.BrowserRows.Single(r => r.Track.Path == paths[0]).Bpm);
+        Assert.Equal(60, vm.Library.BrowserRows.Single(r => r.Track.Path == paths[0]).Bpm);
     }
 }

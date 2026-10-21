@@ -51,10 +51,10 @@ public class LibraryRowTests : IDisposable
         var vm = new MainViewModel(new FakeAudioEngine(), new SettingsStore(Path.Combine(_dir, "s.json")),
             store, post: a => a(), manualAnalysis: true);
 
-        await vm.BrowseFolderCommand.ExecuteAsync(_dir);
+        await vm.Library.BrowseFolderCommand.ExecuteAsync(_dir);
 
-        Assert.Equal(2, vm.BrowserRows.Count);
-        Assert.Equal(122, vm.BrowserRows.Single(r => r.Track.Path == paths[0]).Bpm);
-        Assert.Null(vm.BrowserRows.Single(r => r.Track.Path == paths[1]).Bpm);
+        Assert.Equal(2, vm.Library.BrowserRows.Count);
+        Assert.Equal(122, vm.Library.BrowserRows.Single(r => r.Track.Path == paths[0]).Bpm);
+        Assert.Null(vm.Library.BrowserRows.Single(r => r.Track.Path == paths[1]).Bpm);
     }
 }

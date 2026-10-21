@@ -57,11 +57,11 @@ public class PlatformHooksTests : IDisposable
     public void PlatformRootsReplaceTheDefaultsAndKeepTheirNames()
     {
         var vm = NewVm(new FakeAudioEngine());
-        vm.PlatformRoots = () => [new StorageRoot(_card, "SanDisk SD card"), new StorageRoot("/nope/missing", "Gone")];
+        vm.Library.PlatformRoots = () => [new StorageRoot(_card, "SanDisk SD card"), new StorageRoot("/nope/missing", "Gone")];
 
-        vm.LoadRoots();
+        vm.Library.LoadRoots();
 
-        var root = Assert.Single(vm.Roots, r => !r.IsRecentlyPlayed);
+        var root = Assert.Single(vm.Library.Roots, r => !r.IsRecentlyPlayed);
         Assert.Equal(_card, root.Path);
         Assert.Equal("SanDisk SD card", root.Name);
     }

@@ -3,8 +3,6 @@ using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -23,11 +21,12 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
     private readonly AutoCue _autoCue;
     private DispatcherTimer? _timer;
     private readonly Stopwatch _clock = Stopwatch.StartNew();
-    private CancellationTokenSource? _scan;
     private bool _suppressFaderFeedback;
     private readonly List<DeckViewModel> _pausedByPauseAll = [];
 
     public AnalysisQueue Analysis { get; }
+
+    public LibraryViewModel Library { get; }
 
     public MainViewModel() : this(new SoundFlowAudioEngine(), SettingsStore.Default(), TrackStore.Default(),
         post: a => Dispatcher.UIThread.Post(a)) { }
@@ -46,13 +45,16 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
         _settings = settingsStore.Load();
         _tracks = tracks;
         Analysis = new AnalysisQueue(engine, tracks, post, manualAnalysis);
+        Library = new LibraryViewModel(tracks, Analysis, () => AudibleDeck().HeardBpm, _settings.LastFolder,
+            analyseBpm: _settings.AnalyseLibraryBpm ?? !App.UsePhoneLayout);
+        Library.Status += (_, message) => StatusMessage = message;
 
         DeckA = new DeckViewModel(engine.DeckA, engine, analysis: Analysis);
         DeckB = new DeckViewModel(engine.DeckB, engine, analysis: Analysis);
         DeckA.Other = DeckB;
         DeckB.Other = DeckA;
-        DeckA.TrackPlayed += (_, t) => OnTrackPlayed(t);
-        DeckB.TrackPlayed += (_, t) => OnTrackPlayed(t);
+        DeckA.TrackPlayed += (_, t) => Library.MarkPlayed(t);
+        DeckB.TrackPlayed += (_, t) => Library.MarkPlayed(t);
         DeckA.PlaybackRefused += (_, why) => StatusMessage = why;
         DeckB.PlaybackRefused += (_, why) => StatusMessage = why;
 
@@ -83,13 +85,11 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
         _crossfaderPosition = _settings.CrossfaderPosition;
         _autoCueEnabled = _settings.AutoCueEnabled;
         _crossfadeSeconds = _settings.CrossfadeSeconds;   // at least 1: SettingsStore.Load sees to that
-        _analyseLibraryBpm = _settings.AnalyseLibraryBpm ?? !App.UsePhoneLayout;
-        Analysis.Analysed += (_, path) => { _timings.Remove(path); OnAnalysed(path); };
-        DeckA.BpmCorrected += (_, path) => { _timings.Remove(path); OnAnalysed(path); };
-        DeckB.BpmCorrected += (_, path) => { _timings.Remove(path); OnAnalysed(path); };
+        Analysis.Analysed += (_, path) => _timings.Remove(path);
+        DeckA.BpmCorrected += (_, path) => { _timings.Remove(path); Library.RefreshBpm(path); };
+        DeckB.BpmCorrected += (_, path) => { _timings.Remove(path); Library.RefreshBpm(path); };
         DeckA.CuesChanged += (_, path) => _timings.Remove(path);
         DeckB.CuesChanged += (_, path) => _timings.Remove(path);
-        _currentFolder = _settings.LastFolder ?? DefaultFolder();
         engine.ApplyCrossfader(_crossfaderPosition);
 
         // Silent playback is confusing unless the app says why, so the audio route
@@ -205,19 +205,8 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
     public DeckViewModel DeckA { get; }
     public DeckViewModel DeckB { get; }
 
-    /// <summary>Folders in the left-hand browser tree.</summary>
-    public ObservableCollection<FolderNode> Roots { get; } = [];
-
-    /// <summary>Audio files found in the selected folder, filtered by the search box.</summary>
-    public ObservableCollection<LibraryRow> BrowserRows { get; } = [];
-
-    [ObservableProperty] private FolderNode? _selectedFolder;
-    [ObservableProperty] private LibraryRow? _selectedBrowserRow;
-    [ObservableProperty] private string _searchText = string.Empty;
-    [ObservableProperty] private string _currentFolder = string.Empty;
     [ObservableProperty] private string _statusMessage = "Ready";
     [ObservableProperty] private string _audioStatus = string.Empty;
-    [ObservableProperty] private bool _isScanning;
     [ObservableProperty] private string _clockText = string.Empty;
     [ObservableProperty] private float _crossfaderPosition;
     [ObservableProperty] private bool _autoCueEnabled;
@@ -262,12 +251,6 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
 
     /// <summary>What is audible right now, for the playback notification.</summary>
     [ObservableProperty] private string _playingSummary = string.Empty;
-
-    /// <summary>
-    /// Replaces the default browser roots when the platform knows better. Android
-    /// supplies its mounted storage volumes here, SD cards and USB drives included.
-    /// </summary>
-    public Func<IEnumerable<StorageRoot>>? PlatformRoots { get; set; }
 
     partial void OnCrossfaderPositionChanged(float value)
     {
@@ -337,18 +320,6 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
         finally { _applyingCue = false; }
     }
 
-    partial void OnSelectedFolderChanged(FolderNode? value)
-    {
-        if (value is { IsRecentlyPlayed: true })
-            _ = ShowRecentlyPlayedAsync();
-        // The "…" placeholder stands in for unexpanded children and is not a real
-        // path; browsing it would fail with "could not find a part of the path".
-        else if (value is { IsPlaceholder: false })
-            _ = LoadFolderAsync(value.Path);
-    }
-
-    partial void OnSearchTextChanged(string value) => ApplyFilter();
-
     /// <summary>Hot cue 1 beats the detected first sound as the place to bring a track in.</summary>
     private TrackTiming? TimingFor(Track track)
     {
@@ -376,256 +347,12 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
 
     private void OnTick(object? sender, EventArgs e) => Tick(_clock.Elapsed);
 
-    /// <summary>
-    /// Shared storage on Android: what the user sees as "Internal storage". The
-    /// .NET special folders point into the app's private sandbox there, which never
-    /// holds any music.
-    /// </summary>
-    private const string AndroidStorage = "/storage/emulated/0";
-
-    private static string DefaultFolder()
-    {
-        if (OperatingSystem.IsAndroid())
-            return Path.Combine(AndroidStorage, "Music") is var music && Directory.Exists(music)
-                ? music
-                : AndroidStorage;
-
-        return Environment.GetFolderPath(Environment.SpecialFolder.MyMusic) is { Length: > 0 } m && Directory.Exists(m)
-            ? m
-            : Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-    }
-
-    /// <summary>
-    /// Populates the browser roots. The original enumerated Windows drive letters,
-    /// which has no meaning on Linux or macOS; this uses the user's real folders.
-    /// </summary>
-    public void LoadRoots()
-    {
-        Roots.Clear();
-        Roots.Add(FolderNode.RecentlyPlayed());
-        if (PlatformRoots is not null)
-        {
-            foreach (StorageRoot root in PlatformRoots().Where(r => Directory.Exists(r.Path)).DistinctBy(r => r.Path))
-                Roots.Add(new FolderNode(root.Path, root.Name));
-            return;
-        }
-        foreach (string path in CandidateRoots().Where(Directory.Exists).Distinct())
-            Roots.Add(new FolderNode(path));
-    }
-
-    private static IEnumerable<string> CandidateRoots()
-    {
-        yield return DefaultFolder();
-        if (OperatingSystem.IsAndroid())
-        {
-            // "/" and the app's own home directory are useless to browse on Android.
-            yield return AndroidStorage;
-            yield break;
-        }
-        yield return Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        if (OperatingSystem.IsWindows())
-            foreach (var d in DriveInfo.GetDrives().Where(d => d.IsReady))
-                yield return d.RootDirectory.FullName;
-        else
-            yield return "/";
-    }
-
-    [RelayCommand]
-    private async Task BrowseFolderAsync(string? path)
-    {
-        if (!string.IsNullOrWhiteSpace(path)) await LoadFolderAsync(path);
-    }
-
-    private readonly List<LibraryRow> _folderRows = [];
-
-    private LibraryRow RowFor(Track t)
-    {
-        bool played;
-        lock (_sessionPlayed) played = _sessionPlayed.Contains(t.Path);
-        return new LibraryRow(t) { Bpm = _tracks.Get(t.Path)?.DisplayBpm, IsPlayed = played };
-    }
-
-    public const int RecentlyPlayedLimit = 100;
-
-    /// <summary>Paths played since the app started, for the library's tick.</summary>
-    private readonly HashSet<string> _sessionPlayed = [];
-
-    private void OnTrackPlayed(Track track)
-    {
-        _tracks.MarkPlayed(track.Path, DateTime.UtcNow);
-        lock (_sessionPlayed) _sessionPlayed.Add(track.Path);
-        foreach (LibraryRow row in _folderRows.Where(r => r.Track.Path == track.Path))
-            row.IsPlayed = true;
-    }
-
-    /// <summary>Lists the most recently played tracks that still exist, newest first.</summary>
-    public async Task ShowRecentlyPlayedAsync()
-    {
-        _scan?.Cancel();
-        _scan = new CancellationTokenSource();
-        CancellationToken ct = _scan.Token;
-        try
-        {
-            var rows = await Task.Run(() => _tracks.RecentlyPlayed(RecentlyPlayedLimit)
-                .Where(File.Exists)
-                .Select(path => { ct.ThrowIfCancellationRequested(); return RowFor(TrackMetadataReader.Read(path)); })
-                .ToList(), ct);
-            SetFolderRows(rows);
-            StatusMessage = $"{rows.Count} recently played track(s)";
-        }
-        catch (OperationCanceledException) { /* superseded by a newer selection */ }
-    }
-
-    /// <summary>Replaces what the library lists. Later tasks hook background analysis in here.</summary>
-    private void SetFolderRows(IEnumerable<LibraryRow> rows)
-    {
-        _folderRows.Clear();
-        _folderRows.AddRange(rows);
-        ApplyFilter();
-        QueueLibraryAnalysis();
-    }
-
-    /// <summary>Lists one folder's audio files, reading tags off the UI thread.</summary>
-    private async Task LoadFolderAsync(string path)
-    {
-        _scan?.Cancel();
-        _scan = new CancellationTokenSource();
-        CancellationToken ct = _scan.Token;
-
-        CurrentFolder = path;
-        IsScanning = true;
-        StatusMessage = $"Reading {path}…";
-        SetFolderRows([]);
-
-        try
-        {
-            var found = await Task.Run(() =>
-            {
-                var list = new List<LibraryRow>();
-                foreach (string file in Directory.EnumerateFiles(path).Where(SupportedFormats.IsAudio))
-                {
-                    ct.ThrowIfCancellationRequested();
-                    list.Add(RowFor(TrackMetadataReader.Read(file)));
-                }
-                return list;
-            }, ct);
-
-            SetFolderRows(found);
-            StatusMessage = $"{found.Count} track(s) in {Path.GetFileName(path)}";
-        }
-        catch (OperationCanceledException) { /* superseded by a newer selection */ }
-        catch (Exception ex) { StatusMessage = $"Could not read {path}: {ex.Message}"; }
-        finally { IsScanning = false; }
-    }
-
-    /// <summary>Recursively searches the current folder, replacing the original's blocking scan.</summary>
-    [RelayCommand]
-    private async Task SearchAsync()
-    {
-        if (string.IsNullOrWhiteSpace(SearchText)) { ApplyFilter(); return; }
-        if (!Directory.Exists(CurrentFolder)) return;
-
-        _scan?.Cancel();
-        _scan = new CancellationTokenSource();
-        CancellationToken ct = _scan.Token;
-
-        IsScanning = true;
-        StatusMessage = $"Searching {CurrentFolder}…";
-        SetFolderRows([]);
-        string needle = SearchText;
-
-        try
-        {
-            await foreach (string file in LibraryScanner.ScanAsync(CurrentFolder, ct))
-            {
-                if (!Path.GetFileName(file).Contains(needle, StringComparison.OrdinalIgnoreCase))
-                    continue;
-                LibraryRow row = RowFor(await Task.Run(() => TrackMetadataReader.Read(file), ct));
-                _folderRows.Add(row);
-                if (InBpmRange(row.Bpm)) BrowserRows.Add(row);
-                StatusMessage = $"{BrowserRows.Count} match(es)…";
-            }
-            QueueLibraryAnalysis();
-            StatusMessage = $"{BrowserRows.Count} match(es) for \"{needle}\"";
-        }
-        catch (OperationCanceledException) { StatusMessage = "Search cancelled"; }
-        finally { IsScanning = false; }
-    }
-
-    [RelayCommand]
-    private void CancelScan() => _scan?.Cancel();
-
-    private void ApplyFilter()
-    {
-        BrowserRows.Clear();
-        foreach (LibraryRow row in _folderRows.Where(Matches))
-            BrowserRows.Add(row);
-    }
-
-    private bool Matches(LibraryRow row) =>
-        InBpmRange(row.Bpm) &&
-        (string.IsNullOrWhiteSpace(SearchText) ||
-         row.Track.Display.Contains(SearchText, StringComparison.OrdinalIgnoreCase) ||
-         // Deep search matches file names, so a filter re-test must too.
-         Path.GetFileName(row.Track.Path).Contains(SearchText, StringComparison.OrdinalIgnoreCase));
-
-    /// <summary>The ≈ button's window around the audible deck's BPM.</summary>
-    public const double MatchBpmRange = 0.06;
-
-    [ObservableProperty] private decimal? _bpmMin;
-    [ObservableProperty] private decimal? _bpmMax;
-
-    /// <summary>Analyse every track in an opened folder, lowest priority. Costs battery on phones.</summary>
-    [ObservableProperty] private bool _analyseLibraryBpm;
-
-    partial void OnBpmMinChanged(decimal? value) => ApplyFilter();
-    partial void OnBpmMaxChanged(decimal? value) => ApplyFilter();
-    partial void OnAnalyseLibraryBpmChanged(bool value) => QueueLibraryAnalysis();
-
-    private void QueueLibraryAnalysis() =>
-        Analysis.QueueFolder(AnalyseLibraryBpm ? _folderRows.Select(r => r.Track) : []);
-
-    private bool InBpmRange(double? bpm)
-    {
-        if (BpmMin is null && BpmMax is null) return true;
-        if (bpm is null) return false;
-        double lo = BpmMin is { } min ? (double)min : 0;
-        double hi = BpmMax is { } max ? (double)max : double.MaxValue;
-        if (lo > hi) (lo, hi) = (hi, lo);
-        return bpm >= lo && bpm <= hi;
-    }
-
     /// <summary>The deck the room is hearing: the playing one in front on the crossfader.</summary>
     private DeckViewModel AudibleDeck()
     {
         DeckViewModel front = CrossfaderPosition <= Crossfader.Centre ? DeckA : DeckB;
         DeckViewModel back = ReferenceEquals(front, DeckA) ? DeckB : DeckA;
         return !front.IsPlaying && back.IsPlaying ? back : front;
-    }
-
-    /// <summary>Filters the library to what will mix with the audible deck.</summary>
-    [RelayCommand]
-    private void MatchBpm()
-    {
-        if (AudibleDeck().HeardBpm is not { } bpm)
-        {
-            StatusMessage = "No BPM to match: the playing deck's BPM isn't known yet";
-            return;
-        }
-        BpmMin = Math.Round((decimal)(bpm * (1 - MatchBpmRange)), 1);
-        BpmMax = Math.Round((decimal)(bpm * (1 + MatchBpmRange)), 1);
-    }
-
-    private void OnAnalysed(string path)
-    {
-        double? bpm = _tracks.Get(path)?.DisplayBpm;
-        foreach (LibraryRow row in _folderRows.Where(r => r.Track.Path == path))
-        {
-            row.Bpm = bpm;
-            // Add a newly matching row without rebuilding the list, so the
-            // selection survives a background folder scan.
-            if (Matches(row) && !BrowserRows.Contains(row)) BrowserRows.Add(row);
-        }
     }
 
     [RelayCommand]
@@ -636,7 +363,7 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
 
     private void AddToDeck(DeckViewModel deck)
     {
-        if (SelectedBrowserRow is { } row) deck.Playlist.Add(row.Track);
+        if (Library.SelectedBrowserRow is { } row) deck.Playlist.Add(row.Track);
     }
 
     [RelayCommand]
@@ -719,7 +446,7 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
     /// </summary>
     public void SaveState()
     {
-        _settings.LastFolder = CurrentFolder;
+        _settings.LastFolder = Library.CurrentFolder;
         _settings.CrossfadeSeconds = CrossfadeSeconds;
         _settings.AutoCueEnabled = AutoCueEnabled;
         _settings.AutoCueTempoMatch = TempoMatch;
@@ -731,7 +458,7 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
         _settings.CueMode = CueMode;
         _settings.CueDevice = CueDevice;
         _settings.CueMix = CueMix;
-        _settings.AnalyseLibraryBpm = AnalyseLibraryBpm;
+        _settings.AnalyseLibraryBpm = Library.AnalyseLibraryBpm;
         _settingsStore.Save(_settings);
         SavePlaylists();
         _tracks.Flush();
@@ -743,7 +470,7 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
     public void Dispose()
     {
         _timer?.Stop();
-        _scan?.Cancel();
+        Library.Dispose();
         Analysis.Dispose();
         _tracks.Dispose();
         _engine.Dispose();
