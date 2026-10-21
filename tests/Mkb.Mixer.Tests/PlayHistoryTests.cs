@@ -77,8 +77,8 @@ public class PlayHistoryTests : IDisposable
         var store = TrackStore.InMemory();
         var vm = new MainViewModel(engine, new SettingsStore(Path.Combine(_dir, "s.json")), store,
             post: a => a(), manualAnalysis: true);
-        await vm.BrowseFolderCommand.ExecuteAsync(_dir);
-        LibraryRow row = vm.BrowserRows.Single();
+        await vm.Library.BrowseFolderCommand.ExecuteAsync(_dir);
+        LibraryRow row = vm.Library.BrowserRows.Single();
 
         await vm.DeckA.LoadAsync(new Track(path, "a", Duration: TimeSpan.FromMinutes(3)));
         await vm.DeckA.PlayCommand.ExecuteAsync(null);
@@ -100,9 +100,9 @@ public class PlayHistoryTests : IDisposable
         var vm = new MainViewModel(new FakeAudioEngine(), new SettingsStore(Path.Combine(_dir, "s.json")), store,
             post: a => a(), manualAnalysis: true);
 
-        await vm.ShowRecentlyPlayedAsync();
+        await vm.Library.ShowRecentlyPlayedAsync();
 
-        Assert.Equal(["b", "a"], vm.BrowserRows.Select(r => r.Track.Title));
+        Assert.Equal(["b", "a"], vm.Library.BrowserRows.Select(r => r.Track.Title));
     }
 
     [Fact]
@@ -110,9 +110,9 @@ public class PlayHistoryTests : IDisposable
     {
         var vm = new MainViewModel(new FakeAudioEngine(), new SettingsStore(Path.Combine(_dir, "s.json")));
 
-        vm.LoadRoots();
+        vm.Library.LoadRoots();
 
-        Assert.True(vm.Roots[0].IsRecentlyPlayed);
-        Assert.Empty(vm.Roots[0].Children);
+        Assert.True(vm.Library.Roots[0].IsRecentlyPlayed);
+        Assert.Empty(vm.Library.Roots[0].Children);
     }
 }

@@ -54,12 +54,12 @@ public class FolderNodeTests : IDisposable
         var engine = new FakeAudioEngine();
         var vm = new MainViewModel(engine, new SettingsStore(
             Path.Combine(Path.GetTempPath(), $"mkb-{Guid.NewGuid():N}.json")));
-        string before = vm.CurrentFolder;
+        string before = vm.Library.CurrentFolder;
 
         FolderNode placeholder = new FolderNode(_root).Children[0];
-        vm.SelectedFolder = placeholder;
+        vm.Library.SelectedFolder = placeholder;
 
-        Assert.Equal(before, vm.CurrentFolder);
+        Assert.Equal(before, vm.Library.CurrentFolder);
     }
 
     [Fact]
@@ -78,7 +78,7 @@ public class FolderNodeTests : IDisposable
         // MainWindow.Opened calls LoadRoots(), which clears Roots, so the node
         // under test has to be added after the window has opened.
         var node = new FolderNode(_root);
-        vm.Roots.Add(node);
+        vm.Library.Roots.Add(node);
         Dispatcher.UIThread.RunJobs();
         window.UpdateLayout();
 

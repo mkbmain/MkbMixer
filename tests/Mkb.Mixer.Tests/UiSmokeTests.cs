@@ -104,9 +104,9 @@ public class UiSmokeTests
         vm.DeckA.Playlist.Add(new Track("/m/2.mp3", "Get Up", "Technotronic", "Pump Up the Jam", TimeSpan.FromSeconds(203)));
         vm.DeckB.Playlist.Add(new Track("/m/3.mp3", "Kalimba", "Mr. Scruff", "Ninja Tuna", TimeSpan.FromSeconds(348)));
 
-        vm.BrowserRows.Add(new LibraryRow(a) { Bpm = 136, IsPlayed = true });
-        vm.BrowserRows.Add(new LibraryRow(b) { Bpm = 122 });
-        vm.BrowserRows.Add(new LibraryRow(new Track("/m/4.mp3", "Windowlicker", "Aphex Twin", "Windowlicker", TimeSpan.FromSeconds(366))));
+        vm.Library.BrowserRows.Add(new LibraryRow(a) { Bpm = 136, IsPlayed = true });
+        vm.Library.BrowserRows.Add(new LibraryRow(b) { Bpm = 122 });
+        vm.Library.BrowserRows.Add(new LibraryRow(new Track("/m/4.mp3", "Windowlicker", "Aphex Twin", "Windowlicker", TimeSpan.FromSeconds(366))));
         vm.CrossfaderPosition = 0.35f;
         vm.AutoCueEnabled = true;
         vm.StatusMessage = "3 track(s) in Demo";
@@ -170,7 +170,7 @@ public class UiSmokeTests
             Directory.CreateDirectory(Path.Combine(demo, sub));
         var root = new FolderNode(demo) { IsExpanded = true };
         root.Children.First(c => c.Name == "Albums").IsExpanded = true;
-        vm.Roots.Insert(0, root);
+        vm.Library.Roots.Insert(0, root);
         Dispatcher.UIThread.RunJobs();
         window.UpdateLayout();
 

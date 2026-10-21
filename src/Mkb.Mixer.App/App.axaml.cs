@@ -51,7 +51,7 @@ public partial class App : Application
             // Android: the factory runs each time the activity needs a view.
             activity.MainViewFactory = () =>
             {
-                var viewModel = ViewModel ??= new MainViewModel { PlatformRoots = PlatformRoots };
+                var viewModel = ViewModel ??= new MainViewModel { Library = { PlatformRoots = PlatformRoots } };
                 return UsePhoneLayout
                     ? new PhoneView { DataContext = viewModel }
                     : new MainView { DataContext = viewModel };

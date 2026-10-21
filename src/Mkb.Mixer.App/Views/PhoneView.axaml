@@ -113,25 +113,25 @@
       <TabItem Header="LIBRARY">
         <Grid RowDefinitions="Auto,Auto,2*,Auto,3*,Auto" Margin="10">
           <Grid ColumnDefinitions="*,Auto,Auto">
-            <TextBox PlaceholderText="Search this folder and below…" Text="{Binding SearchText}" />
+            <TextBox PlaceholderText="Search this folder and below…" Text="{Binding Library.SearchText}" />
             <Button Grid.Column="1" Content="Search" Margin="6,0,0,0"
-                    Command="{Binding SearchCommand}" />
+                    Command="{Binding Library.SearchCommand}" />
             <Button Grid.Column="2" Content="Stop" Margin="6,0,0,0"
-                    Command="{Binding CancelScanCommand}" IsEnabled="{Binding IsScanning}" />
+                    Command="{Binding Library.CancelScanCommand}" IsEnabled="{Binding Library.IsScanning}" />
           </Grid>
 
           <!-- Folder tree, expanded lazily -->
           <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="6" Margin="0,8,0,0">
             <TextBlock Classes="dim" Text="BPM" VerticalAlignment="Center" />
-            <NumericUpDown Classes="bpmfilter" Value="{Binding BpmMin}" PlaceholderText="from" />
+            <NumericUpDown Classes="bpmfilter" Value="{Binding Library.BpmMin}" PlaceholderText="from" />
             <TextBlock Classes="dim" Text="–" VerticalAlignment="Center" />
-            <NumericUpDown Classes="bpmfilter" Value="{Binding BpmMax}" PlaceholderText="to" />
-            <Button Classes="tiny" Content="≈" Command="{Binding MatchBpmCommand}" />
-            <CheckBox Content="analyse" IsChecked="{Binding AnalyseLibraryBpm}" Margin="6,0,0,0" />
+            <NumericUpDown Classes="bpmfilter" Value="{Binding Library.BpmMax}" PlaceholderText="to" />
+            <Button Classes="tiny" Content="≈" Command="{Binding Library.MatchBpmCommand}" />
+            <CheckBox Content="analyse" IsChecked="{Binding Library.AnalyseLibraryBpm}" Margin="6,0,0,0" />
           </StackPanel>
 
           <Border Grid.Row="2" Classes="panel" Padding="4" Margin="0,8,0,0">
-            <TreeView ItemsSource="{Binding Roots}" SelectedItem="{Binding SelectedFolder}">
+            <TreeView ItemsSource="{Binding Library.Roots}" SelectedItem="{Binding Library.SelectedFolder}">
               <TreeView.Styles>
                 <!-- Without this the node's IsExpanded never fires, so children are
                      never loaded and the tree cannot be navigated. -->
@@ -148,13 +148,13 @@
           </Border>
 
           <ProgressBar Grid.Row="3" IsIndeterminate="True" Height="3" Margin="0,4,0,0"
-                       IsVisible="{Binding IsScanning}" />
+                       IsVisible="{Binding Library.IsScanning}" />
 
           <!-- Tracks in the selected folder. A list rather than the tablet's grid,
                which needs far more width than a phone has for its columns. -->
           <Border Grid.Row="4" Classes="panel" Padding="4" Margin="0,4,0,0">
-            <ListBox Classes="tracks" ItemsSource="{Binding BrowserRows}"
-                     SelectedItem="{Binding SelectedBrowserRow}">
+            <ListBox Classes="tracks" ItemsSource="{Binding Library.BrowserRows}"
+                     SelectedItem="{Binding Library.SelectedBrowserRow}">
               <ListBox.ItemTemplate>
                 <DataTemplate x:DataType="vm:LibraryRow">
                   <Grid ColumnDefinitions="*,Auto,Auto" RowDefinitions="Auto,Auto" Opacity="{Binding RowOpacity}">

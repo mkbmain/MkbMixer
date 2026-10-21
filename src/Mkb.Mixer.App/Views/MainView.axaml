@@ -69,24 +69,24 @@
         <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto,Auto,Auto">
           <TextBlock Classes="heading" Text="LIBRARY" VerticalAlignment="Center" />
           <TextBox Grid.Column="1" Margin="16,0" PlaceholderText="Search this folder and below…"
-                   Text="{Binding SearchText}" />
-          <Button Grid.Column="2" Content="Search" Command="{Binding SearchCommand}" />
+                   Text="{Binding Library.SearchText}" />
+          <Button Grid.Column="2" Content="Search" Command="{Binding Library.SearchCommand}" />
           <Button Grid.Column="3" Content="Stop" Margin="6,0,0,0"
-                  Command="{Binding CancelScanCommand}"
-                  IsEnabled="{Binding IsScanning}" />
+                  Command="{Binding Library.CancelScanCommand}"
+                  IsEnabled="{Binding Library.IsScanning}" />
           <StackPanel Grid.Column="4" Orientation="Horizontal" Spacing="4" Margin="16,0,0,0"
                       VerticalAlignment="Center">
             <TextBlock Classes="dim" Text="BPM" VerticalAlignment="Center" />
-            <NumericUpDown Classes="bpmfilter" Value="{Binding BpmMin}" PlaceholderText="from"
+            <NumericUpDown Classes="bpmfilter" Value="{Binding Library.BpmMin}" PlaceholderText="from"
                            ToolTip.Tip="Lowest BPM to list. Leave both empty to list everything." />
             <TextBlock Classes="dim" Text="–" VerticalAlignment="Center" />
-            <NumericUpDown Classes="bpmfilter" Value="{Binding BpmMax}" PlaceholderText="to"
+            <NumericUpDown Classes="bpmfilter" Value="{Binding Library.BpmMax}" PlaceholderText="to"
                            ToolTip.Tip="Highest BPM to list" />
-            <Button Classes="tiny" Content="≈" Command="{Binding MatchBpmCommand}"
+            <Button Classes="tiny" Content="≈" Command="{Binding Library.MatchBpmCommand}"
                     ToolTip.Tip="List tracks within 6% of the playing deck's BPM" />
           </StackPanel>
           <CheckBox Grid.Column="5" Content="analyse BPM" Margin="12,0,0,0"
-                    IsChecked="{Binding AnalyseLibraryBpm}"
+                    IsChecked="{Binding Library.AnalyseLibraryBpm}"
                     ToolTip.Tip="Work out the BPM of every track in an opened folder, in the background" />
           <Button Grid.Column="6" Content="Save playlists" Margin="16,0,0,0"
                   Command="{Binding SavePlaylistsCommand}" />
@@ -96,8 +96,8 @@
 
         <Grid Grid.Row="1" ColumnDefinitions="260,10,*" Margin="0,10,0,0">
           <!-- Folder tree, expanded lazily -->
-          <TreeView ItemsSource="{Binding Roots}"
-                    SelectedItem="{Binding SelectedFolder}">
+          <TreeView ItemsSource="{Binding Library.Roots}"
+                    SelectedItem="{Binding Library.SelectedFolder}">
             <TreeView.Styles>
               <!-- Without this the node's IsExpanded never fires, so children are
                    never loaded and the tree cannot be navigated. -->
@@ -114,8 +114,8 @@
 
           <!-- Tracks in the selected folder -->
           <Grid Grid.Column="2" RowDefinitions="*,Auto">
-            <DataGrid ItemsSource="{Binding BrowserRows}"
-                      SelectedItem="{Binding SelectedBrowserRow}"
+            <DataGrid ItemsSource="{Binding Library.BrowserRows}"
+                      SelectedItem="{Binding Library.SelectedBrowserRow}"
                       IsReadOnly="True" GridLinesVisibility="Horizontal"
                       HeadersVisibility="Column" CanUserSortColumns="True">
               <DataGrid.Styles>
@@ -155,7 +155,7 @@
     <Grid Grid.Row="3" ColumnDefinitions="*,Auto,Auto" Margin="2,8,2,0">
       <TextBlock Classes="dim" Text="{Binding StatusMessage}" TextTrimming="CharacterEllipsis" />
       <ProgressBar Grid.Column="1" Width="120" IsIndeterminate="True" Height="3"
-                   IsVisible="{Binding IsScanning}" VerticalAlignment="Center" />
+                   IsVisible="{Binding Library.IsScanning}" VerticalAlignment="Center" />
       <TextBlock Grid.Column="2" Classes="dim" Margin="16,0,0,0"
                  Text="{Binding AudioStatus}"
                  ToolTip.Tip="The audio backend and device in use" />

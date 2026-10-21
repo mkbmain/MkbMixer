@@ -25,12 +25,12 @@ public static class TrackMetadataReader
                 album,
                 file.Properties?.Duration ?? TimeSpan.Zero);
         }
-        catch (Exception e) when (e is TagLib.CorruptFileException
-                                   or TagLib.UnsupportedFormatException
-                                   or IOException
-                                   or UnauthorizedAccessException)
+        catch (Exception e) when (e is not OutOfMemoryException)
         {
-            // An unreadable tag is not a reason to hide the file from the user.
+            // An unreadable tag is not a reason to hide the file from the user. Not
+            // just TagLib's own exceptions: a truncated header can surface as an
+            // ArgumentOutOfRangeException, and one bad file would otherwise empty
+            // the whole folder listing or end a search.
             return Track.FromPath(path);
         }
     }
