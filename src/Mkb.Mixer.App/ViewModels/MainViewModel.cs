@@ -381,7 +381,13 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
 
     /// <summary>Saves both playlists next to the settings file.</summary>
     [RelayCommand]
-    private void SavePlaylists()
+    private void SavePlaylists() => WritePlaylists(reportSuccess: true);
+
+    /// <param name="reportSuccess">
+    /// False for the automatic save on every Android pause, where "saved" each time
+    /// would bury whatever the status bar was saying. Failures are always reported.
+    /// </param>
+    private void WritePlaylists(bool reportSuccess)
     {
         // Also runs on every Android pause: a full or read-only disk must not crash.
         try
@@ -389,7 +395,7 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
             string dir = PlaylistDirectory();
             M3uPlaylist.Save(Path.Combine(dir, "deck-a.m3u"), DeckA.Playlist);
             M3uPlaylist.Save(Path.Combine(dir, "deck-b.m3u"), DeckB.Playlist);
-            StatusMessage = $"Playlists saved to {dir}";
+            if (reportSuccess) StatusMessage = $"Playlists saved to {dir}";
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
@@ -397,15 +403,37 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
         }
     }
 
+    /// <summary>
+    /// Puts back the playlists <see cref="SaveState()"/> saved last time, without a
+    /// status message. The app calls this once at launch; it is not in the
+    /// constructor because <see cref="PlaylistFolder"/> is only set after it.
+    /// </summary>
+    private int _forgetStarted;
+
+    /// <summary>
+    /// Drops deleted files from the per-track store in the background, once per run.
+    /// Only call it once the app can see the user's audio files: on Android before
+    /// storage access is granted, every file looks deleted.
+    /// </summary>
+    public void ForgetDeletedTracks()
+    {
+        if (Interlocked.Exchange(ref _forgetStarted, 1) != 0) return;
+        _ = Task.Run(_tracks.ForgetMissing);
+    }
+
+    public void RestorePlaylists() => ReadPlaylists(reportSuccess: false);
+
     [RelayCommand]
-    private void LoadPlaylists()
+    private void LoadPlaylists() => ReadPlaylists(reportSuccess: true);
+
+    private void ReadPlaylists(bool reportSuccess)
     {
         try
         {
             string dir = PlaylistDirectory();
             Restore(DeckA, Path.Combine(dir, "deck-a.m3u"));
             Restore(DeckB, Path.Combine(dir, "deck-b.m3u"));
-            StatusMessage = "Playlists loaded";
+            if (reportSuccess) StatusMessage = "Playlists loaded";
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
@@ -460,7 +488,7 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
         _settings.CueMix = CueMix;
         _settings.AnalyseLibraryBpm = Library.AnalyseLibraryBpm;
         _settingsStore.Save(_settings);
-        SavePlaylists();
+        WritePlaylists(reportSuccess: false);
         _tracks.Flush();
     }
 

@@ -98,6 +98,34 @@ public sealed class TrackStore : IDisposable
                 .ToList();
     }
 
+    /// <summary>
+    /// Drops tracks whose file has been deleted, so the store does not grow forever.
+    /// A track whose folder has gone too is kept: that is usually an SD card or USB
+    /// drive that is not plugged in, and its cues and history should be there when
+    /// it comes back. Saved on the next flush. Touches the disk once per track, so
+    /// call it off the UI thread.
+    /// </summary>
+    /// <returns>How many tracks were forgotten.</returns>
+    public int ForgetMissing()
+    {
+        string[] paths;
+        lock (_gate) paths = [.. _tracks.Keys];
+
+        // Checked outside the lock, so the UI is never kept waiting on a slow card.
+        List<string> missing = paths.Where(IsDeleted).ToList();
+        if (missing.Count == 0) return 0;
+
+        lock (_gate)
+        {
+            int forgotten = missing.Count(_tracks.Remove);
+            if (forgotten > 0) _dirty = true;
+            return forgotten;
+        }
+
+        static bool IsDeleted(string path) =>
+            !File.Exists(path) && Path.GetDirectoryName(path) is { Length: > 0 } dir && Directory.Exists(dir);
+    }
+
     /// <summary>Writes now if anything has changed. Safe to call from any thread.</summary>
     public void Flush()
     {

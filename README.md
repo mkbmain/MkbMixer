@@ -118,7 +118,9 @@ seconds, or when it ends.
 
 With **analyse BPM** on, opening a folder works out each track's BPM in the
 background, one track at a time, and the column fills in as it goes. Results are
-kept, so each file is only analysed once unless it changes. It is on by default on
+kept, so each file is only analysed once unless it changes. What the app remembers
+about a file that has since been deleted is dropped at the next launch; a track
+on an SD card or drive that is not plugged in keeps its BPM, cues and history. It is on by default on
 desktops and tablets and off on phones, where it costs battery the first time a big
 folder is opened.
 
@@ -260,7 +262,7 @@ audio library is swappable and the logic is testable without an audio device.
 
 - Waveform display with click-and-drag seeking. The original had no seek at all.
 - ID3/Vorbis/MP4 tags, so lists show `Artist — Title` rather than `C:\Music\x.mp3`.
-- Playlists saved as M3U, and settings persisted between runs.
+- Playlists saved as M3U and restored at the next launch, and settings persisted between runs.
 - Tempo control that preserves pitch (WSOLA) rather than resampling.
   Tap the tempo readout (or double-tap the slider) to snap back to 1.00×.
 - FLAC, OGG, M4A, AAC and Opus support.
@@ -281,3 +283,7 @@ audio library is swappable and the logic is testable without an audio device.
 - **Tempo always preserves pitch.** SoundFlow routes `PlaybackSpeed` through WSOLA
   unconditionally, so the original's pitch-shifting speed control cannot be
   reproduced without adding a resampling path.
+
+## Licence
+
+MIT; see [LICENSE](LICENSE).
