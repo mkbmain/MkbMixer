@@ -25,7 +25,7 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
     private readonly Stopwatch _clock = Stopwatch.StartNew();
     private CancellationTokenSource? _scan;
     private bool _suppressFaderFeedback;
-    private readonly System.Collections.Generic.List<DeckViewModel> _pausedByPauseAll = [];
+    private readonly List<DeckViewModel> _pausedByPauseAll = [];
 
     public AnalysisQueue Analysis { get; }
 
@@ -239,7 +239,7 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
     }
     [ObservableProperty] private int _crossfadeSeconds;
 
-    public System.Collections.Generic.IReadOnlyList<CueMode> CueModes { get; } =
+    public IReadOnlyList<CueMode> CueModes { get; } =
         [CueMode.Off, CueMode.Split, CueMode.Device];
 
     /// <summary>Outputs the headphones can be on, in Device mode.</summary>
@@ -268,7 +268,7 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
     /// Replaces the default browser roots when the platform knows better. Android
     /// supplies its mounted storage volumes here, SD cards and USB drives included.
     /// </summary>
-    public Func<System.Collections.Generic.IEnumerable<StorageRoot>>? PlatformRoots { get; set; }
+    public Func<IEnumerable<StorageRoot>>? PlatformRoots { get; set; }
 
     partial void OnCrossfaderPositionChanged(float value)
     {
@@ -359,7 +359,7 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
         return _timings[track.Path] = ComputeTiming(track);
     }
 
-    private readonly System.Collections.Generic.Dictionary<string, TrackTiming?> _timings = new();
+    private readonly Dictionary<string, TrackTiming?> _timings = new();
 
     private TrackTiming? ComputeTiming(Track track)
     {
@@ -414,7 +414,7 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
             Roots.Add(new FolderNode(path));
     }
 
-    private static System.Collections.Generic.IEnumerable<string> CandidateRoots()
+    private static IEnumerable<string> CandidateRoots()
     {
         yield return DefaultFolder();
         if (OperatingSystem.IsAndroid())
@@ -437,7 +437,7 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
         if (!string.IsNullOrWhiteSpace(path)) await LoadFolderAsync(path);
     }
 
-    private readonly System.Collections.Generic.List<LibraryRow> _folderRows = [];
+    private readonly List<LibraryRow> _folderRows = [];
 
     private LibraryRow RowFor(Track t)
     {
@@ -449,7 +449,7 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
     public const int RecentlyPlayedLimit = 100;
 
     /// <summary>Paths played since the app started, for the library's tick.</summary>
-    private readonly System.Collections.Generic.HashSet<string> _sessionPlayed = [];
+    private readonly HashSet<string> _sessionPlayed = [];
 
     private void OnTrackPlayed(Track track)
     {
@@ -478,7 +478,7 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
     }
 
     /// <summary>Replaces what the library lists. Later tasks hook background analysis in here.</summary>
-    private void SetFolderRows(System.Collections.Generic.IEnumerable<LibraryRow> rows)
+    private void SetFolderRows(IEnumerable<LibraryRow> rows)
     {
         _folderRows.Clear();
         _folderRows.AddRange(rows);
@@ -502,7 +502,7 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
         {
             var found = await Task.Run(() =>
             {
-                var list = new System.Collections.Generic.List<LibraryRow>();
+                var list = new List<LibraryRow>();
                 foreach (string file in Directory.EnumerateFiles(path).Where(SupportedFormats.IsAudio))
                 {
                     ct.ThrowIfCancellationRequested();
