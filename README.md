@@ -42,7 +42,10 @@ It is signed with your local debug key unless `ANDROID_KEYSTORE`,
 script.
 
 CI builds a Release APK on every push and PR (the `mkb-mixer-apk` artifact on the
-run), and pushing a `v*` tag attaches it to a GitHub release. To sign those with
+run), and pushing a `v*` tag attaches it to a GitHub release. A tag such as
+`v1.2.3` stamps the APK as version 1.2.3 with version code 1002003, so each
+release installs as an upgrade over the last; set `MKB_VERSION=1.2.3` to do the
+same with `build-apk.sh` locally. To sign those with
 your release key, add the repository secrets `ANDROID_KEYSTORE_BASE64`
 (`base64 -w0 release.keystore`), `ANDROID_KEY_ALIAS`, `ANDROID_KEYSTORE_PASSWORD`
 and optionally `ANDROID_KEY_PASSWORD`; without them CI signs with a throwaway
