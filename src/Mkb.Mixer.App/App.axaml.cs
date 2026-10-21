@@ -35,6 +35,8 @@ public partial class App : Application
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
             var viewModel = ViewModel = new MainViewModel();
+            viewModel.RestorePlaylists();
+            viewModel.ForgetDeletedTracks();
             desktop.MainWindow = new MainWindow
             {
                 DataContext = viewModel,
@@ -51,7 +53,14 @@ public partial class App : Application
             // Android: the factory runs each time the activity needs a view.
             activity.MainViewFactory = () =>
             {
-                var viewModel = ViewModel ??= new MainViewModel { Library = { PlatformRoots = PlatformRoots } };
+                if (ViewModel is null)
+                {
+                    // Once per process, not per view: a rebuilt activity keeps its queues.
+                    // Deleted tracks are forgotten by the activity, once it has storage access.
+                    ViewModel = new MainViewModel { Library = { PlatformRoots = PlatformRoots } };
+                    ViewModel.RestorePlaylists();
+                }
+                var viewModel = ViewModel;
                 return UsePhoneLayout
                     ? new PhoneView { DataContext = viewModel }
                     : new MainView { DataContext = viewModel };
@@ -59,7 +68,9 @@ public partial class App : Application
         }
         else if (ApplicationLifetime is ISingleViewApplicationLifetime singleView)
         {
-            singleView.MainView = new MainView { DataContext = ViewModel = new MainViewModel() };
+            ViewModel = new MainViewModel();
+            ViewModel.RestorePlaylists();
+            singleView.MainView = new MainView { DataContext = ViewModel };
         }
 
         base.OnFrameworkInitializationCompleted();

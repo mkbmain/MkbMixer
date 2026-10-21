@@ -189,6 +189,90 @@ public class ShutdownAndPersistenceTests : IDisposable
         Assert.StartsWith("Could not save playlists", vm.StatusMessage);
     }
 
+    private MainViewModel ViewModelWithPlaylistsIn(string folder) =>
+        new(new FakeAudioEngine(), new SettingsStore(Path.Combine(_dir, "s.json"))) { PlaylistFolder = folder };
+
+    [Fact]
+    public void PlaylistsSavedOnTheWayOutAreRestoredOnTheNextLaunch()
+    {
+        string folder = Path.Combine(_dir, "playlists");
+        var before = ViewModelWithPlaylistsIn(folder);
+        before.DeckA.Playlist.Add(new Track("/m/a.mp3", "A"));
+        before.DeckB.Playlist.Add(new Track("/m/b.mp3", "B"));
+        before.DeckB.Playlist.Add(new Track("/m/c.mp3", "C"));
+        before.SaveState();
+
+        var after = ViewModelWithPlaylistsIn(folder);
+        after.RestorePlaylists();
+
+        Assert.Equal(["/m/a.mp3"], after.DeckA.Playlist.Select(t => t.Path));
+        Assert.Equal(["/m/b.mp3", "/m/c.mp3"], after.DeckB.Playlist.Select(t => t.Path));
+    }
+
+    [Fact]
+    public void RestoringPlaylistsOnLaunchLeavesTheStatusBarAlone()
+    {
+        string folder = Path.Combine(_dir, "playlists");
+        var before = ViewModelWithPlaylistsIn(folder);
+        before.DeckA.Playlist.Add(new Track("/m/a.mp3", "A"));
+        before.SaveState();
+
+        var after = ViewModelWithPlaylistsIn(folder);
+        string status = after.StatusMessage;
+        after.RestorePlaylists();
+
+        Assert.Equal(status, after.StatusMessage);
+    }
+
+    [Fact]
+    public void RestoringWithNoSavedPlaylistsLeavesTheDecksEmpty()
+    {
+        var vm = ViewModelWithPlaylistsIn(Path.Combine(_dir, "never-saved"));
+
+        vm.RestorePlaylists();
+
+        Assert.Empty(vm.DeckA.Playlist);
+        Assert.Empty(vm.DeckB.Playlist);
+    }
+
+    [Fact]
+    public void SavingStateQuietlyLeavesTheStatusBarAlone()
+    {
+        // Android saves on every pause; "Playlists saved" each time would bury real messages.
+        var vm = ViewModelWithPlaylistsIn(Path.Combine(_dir, "playlists"));
+        vm.StatusMessage = "Headphone cue is off: device gone";
+
+        vm.SaveState();
+
+        Assert.Equal("Headphone cue is off: device gone", vm.StatusMessage);
+    }
+
+    [Fact]
+    public void SavingPlaylistsByHandStillSaysWhere()
+    {
+        string folder = Path.Combine(_dir, "playlists");
+        var vm = ViewModelWithPlaylistsIn(folder);
+
+        vm.SavePlaylistsCommand.Execute(null);
+
+        Assert.Equal($"Playlists saved to {folder}", vm.StatusMessage);
+    }
+
+    [Fact]
+    public void ForgettingDeletedTracksRunsInTheBackground()
+    {
+        string deleted = Path.Combine(_dir, "deleted.mp3");
+        File.WriteAllBytes(deleted, new byte[10]);
+        var tracks = TrackStore.InMemory();
+        tracks.MarkPlayed(deleted, DateTime.UtcNow);
+        File.Delete(deleted);
+        var vm = new MainViewModel(new FakeAudioEngine(), new SettingsStore(Path.Combine(_dir, "s.json")), tracks);
+
+        vm.ForgetDeletedTracks();
+
+        Assert.True(SpinWait.SpinUntil(() => tracks.Get(deleted) is null, TimeSpan.FromSeconds(5)));
+    }
+
     [Fact]
     public void SavingAPlaylistLeavesNoTempFileBehind()
     {

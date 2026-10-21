@@ -95,7 +95,12 @@ public class MainActivity : AvaloniaMainActivity
         base.OnResume();
         // By now Avalonia has built the view, and so the view model, for certain.
         if (CurrentViewModel() is { } vm)
+        {
             PlaybackService.Watch(vm);
+            // Without storage access every file looks deleted, so only then.
+            if (CheckSelfPermission(StoragePermission) == Permission.Granted)
+                vm.ForgetDeletedTracks();
+        }
     }
 
     protected override void OnPause()

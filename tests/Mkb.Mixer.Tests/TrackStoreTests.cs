@@ -130,6 +130,55 @@ public class TrackStoreTests : IDisposable
     }
 
     [Fact]
+    public void ForgetMissingDropsADeletedFileWhoseFolderIsStillThere()
+    {
+        string kept = AudioFile("kept.mp3"), deleted = AudioFile("deleted.mp3");
+        using var store = new TrackStore(StorePath);
+        store.MarkPlayed(kept, DateTime.UtcNow);
+        store.MarkPlayed(deleted, DateTime.UtcNow);
+        File.Delete(deleted);
+
+        int forgotten = store.ForgetMissing();
+
+        Assert.Equal(1, forgotten);
+        Assert.NotNull(store.Get(kept));
+        Assert.Null(store.Get(deleted));
+    }
+
+    [Fact]
+    public void ForgetMissingKeepsTracksWhoseFolderHasGone()
+    {
+        // An unmounted SD card or USB drive takes the whole folder with it; its cues
+        // and history must still be there when it comes back.
+        using var store = new TrackStore(StorePath);
+        string onCard = Path.Combine(_dir, "unplugged-card", "Music", "a.mp3");
+        store.Update(onCard, i => i.WithHotCue(0, 12));
+
+        int forgotten = store.ForgetMissing();
+
+        Assert.Equal(0, forgotten);
+        Assert.Equal(12, store.Get(onCard)!.HotCueSeconds[0]);
+    }
+
+    [Fact]
+    public void ForgetMissingIsSavedOnTheNextFlush()
+    {
+        string deleted = AudioFile("deleted.mp3");
+        using (var store = new TrackStore(StorePath))
+        {
+            store.MarkPlayed(deleted, DateTime.UtcNow);
+            store.Flush();
+            File.Delete(deleted);
+            store.ForgetMissing();
+            store.Flush();
+        }
+
+        using var reloaded = new TrackStore(StorePath);
+
+        Assert.Empty(reloaded.RecentlyPlayed(10));
+    }
+
+    [Fact]
     public void FlushNeverThrowsWhenTheStoreCannotBeSerialised()
     {
         using var store = new TrackStore(StorePath);
