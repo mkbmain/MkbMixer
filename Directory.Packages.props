@@ -3,7 +3,7 @@
        Version, so the Avalonia packages cannot drift apart. -->
   <PropertyGroup>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
-    <AvaloniaVersion>12.1.3</AvaloniaVersion>
+    <AvaloniaVersion>12.1.4</AvaloniaVersion>
   </PropertyGroup>
 
   <ItemGroup>
