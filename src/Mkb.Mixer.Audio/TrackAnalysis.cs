@@ -12,12 +12,11 @@ public sealed record TrackAnalysis(
     /// <summary>The file could not be decoded. Compared by reference, so never cached.</summary>
     public static TrackAnalysis Empty { get; } = new(Waveform.Empty, null, null, null, null);
 
+    /// <summary>Analyses samples already in memory; a decode should feed a <see cref="TrackAnalyser"/> instead.</summary>
     public static TrackAnalysis FromSamples(ReadOnlySpan<float> interleaved, int channels, int sampleRate)
     {
-        Waveform wave = Waveform.FromSamples(interleaved, channels, Waveform.DefaultBuckets);
-        AnalysisSignal signal = AnalysisSignal.From(interleaved, channels, sampleRate);
-        var (bpm, offset) = TempoDetector.Detect(signal);
-        var (first, last) = SilenceDetector.Detect(signal);
-        return new TrackAnalysis(wave, bpm, offset, first, last);
+        var analyser = new TrackAnalyser(channels, sampleRate);
+        analyser.Add(interleaved);
+        return analyser.Finish();
     }
 }

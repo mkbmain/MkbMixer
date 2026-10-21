@@ -15,7 +15,7 @@ public readonly record struct AnalysisSignal(float[] Samples, int SampleRate)
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(channels);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(sampleRate);
 
-        int factor = Math.Max(1, (int)Math.Round((double)sampleRate / TargetRate));
+        int factor = DecimationFactor(sampleRate);
         int block = factor * channels;
         var mono = new float[interleaved.Length / block];
         for (int i = 0; i < mono.Length; i++)
@@ -27,4 +27,8 @@ public readonly record struct AnalysisSignal(float[] Samples, int SampleRate)
         }
         return new AnalysisSignal(mono, sampleRate / factor);
     }
+
+    /// <summary>How many frames are averaged into one sample to get near <see cref="TargetRate"/>.</summary>
+    public static int DecimationFactor(int sampleRate) =>
+        Math.Max(1, (int)Math.Round((double)sampleRate / TargetRate));
 }
