@@ -249,10 +249,26 @@ public sealed partial class DeckViewModel : ViewModelBase
     partial void OnIsCuedChanged(bool value) => _deck.IsCued = value;
 
     /// <summary>Loads a track and kicks off its analysis in the background.</summary>
-    public async Task LoadAsync(Track track)
+    /// <returns>False when the file could not be opened; the deck is then empty and the reason reported.</returns>
+    public async Task<bool> LoadAsync(Track track)
     {
-        _deck.Load(track);
+        bool loaded = TryLoad(track);
         await OnTrackChangedAsync();
+        return loaded;
+    }
+
+    private bool TryLoad(Track track)
+    {
+        try
+        {
+            _deck.Load(track);
+            return true;
+        }
+        catch (Exception e)
+        {
+            PlaybackRefused?.Invoke(this, $"{Label}: could not open {track.Display}: {e.Message}");
+            return false;
+        }
     }
 
     /// <summary>
@@ -300,8 +316,8 @@ public sealed partial class DeckViewModel : ViewModelBase
 
         // Pressing play with nothing loaded pulls the top of the playlist, which is
         // what the original did implicitly via its selected-item lookup.
-        if (_deck.Track is null && Playlist.Count > 0)
-            await LoadAsync(Playlist[0]);
+        if (_deck.Track is null && Playlist.Count > 0 && !await LoadAsync(Playlist[0]))
+            return;   // LoadAsync has already said why
 
         if (_deck.Track is null)
         {
@@ -414,9 +430,28 @@ public sealed partial class DeckViewModel : ViewModelBase
 
     private async void PlayNextFromPlaylist()
     {
-        if (DequeueNext() is not { } next) return;
-        await LoadAsync(next);
-        _deck.Play();
+        // Runs from the track-ended event: anything escaping an async void here
+        // would end the process mid-set.
+        try { await PlayNextAsync(); }
+        catch (Exception e) { PlaybackRefused?.Invoke(this, $"{Label}: {e.Message}"); }
+    }
+
+    /// <summary>
+    /// Loads and plays the next queued track, skipping any that cannot be opened.
+    /// Gives up after one pass of the queue, so a repeating queue of missing files
+    /// cannot spin forever.
+    /// </summary>
+    /// <returns>True when something is now playing.</returns>
+    public async Task<bool> PlayNextAsync()
+    {
+        for (int attempts = Playlist.Count; attempts > 0; attempts--)
+        {
+            if (DequeueNext() is not { } next) return false;
+            if (!await LoadAsync(next)) continue;
+            _deck.Play();
+            return true;
+        }
+        return false;
     }
 
     /// <summary>Seeks to a fraction of the track, used by clicking the waveform.</summary>

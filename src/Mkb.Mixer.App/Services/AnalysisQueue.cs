@@ -33,7 +33,11 @@ public sealed class AnalysisQueue : IDisposable
     private readonly List<(string Path, AnalysisPriority Priority)> _pending = [];
     private readonly SemaphoreSlim _wake = new(0);
     private readonly CancellationTokenSource _stop = new();
+    private readonly HashSet<Task> _deckAnalyses = [];
     private Task? _worker;
+
+    /// <summary>How long <see cref="Dispose"/> waits for a decode to notice it was cancelled.</summary>
+    public static readonly TimeSpan DisposeTimeout = TimeSpan.FromSeconds(2);
 
     /// <param name="post">
     /// Runs an action on the UI thread. Defaults to the creating thread's
@@ -59,9 +63,20 @@ public sealed class AnalysisQueue : IDisposable
     /// <summary>Analyses a track that has just been loaded on a deck, cached or not.</summary>
     public async Task<TrackAnalysis> AnalyseForDeckAsync(Track track, CancellationToken ct = default)
     {
-        TrackAnalysis result = await _engine.AnalyseAsync(track.Path, ct);
-        if (!ct.IsCancellationRequested) Record(track.Path, result);
-        return result;
+        // Tied to disposal too, so shutting down stops the decode before the engine goes.
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, _stop.Token);
+        Task<TrackAnalysis> analysis = _engine.AnalyseAsync(track.Path, linked.Token);
+        lock (_gate) _deckAnalyses.Add(analysis);
+        try
+        {
+            TrackAnalysis result = await analysis;
+            if (!linked.IsCancellationRequested) Record(track.Path, result);
+            return result;
+        }
+        finally
+        {
+            lock (_gate) _deckAnalyses.Remove(analysis);
+        }
     }
 
     /// <summary>Queues a deck's next-up track ahead of any library work.</summary>
@@ -156,5 +171,18 @@ public sealed class AnalysisQueue : IDisposable
         _post(() => Analysed?.Invoke(this, path));
     }
 
-    public void Dispose() => _stop.Cancel();
+    /// <summary>
+    /// Cancels all analysis and waits briefly for it to stop. The owner disposes the
+    /// audio engine next, and a decode still running against it would use freed
+    /// native memory.
+    /// </summary>
+    public void Dispose()
+    {
+        _stop.Cancel();
+        Task[] running;
+        lock (_gate)
+            running = [.. _deckAnalyses, .. _worker is null ? [] : new[] { _worker }];
+        try { Task.WaitAll(running, DisposeTimeout); }
+        catch (AggregateException) { /* cancelled or failed: either way, stopped */ }
+    }
 }

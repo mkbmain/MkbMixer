@@ -1,0 +1,18 @@
+version: 2
+updates:
+  # Reads Directory.Packages.props. Avalonia ships its packages together, so
+  # they arrive as one PR rather than one per package.
+  - package-ecosystem: nuget
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      avalonia:
+        patterns: ["Avalonia*"]
+      test:
+        patterns: ["xunit*", "Microsoft.NET.Test.Sdk", "coverlet.*"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

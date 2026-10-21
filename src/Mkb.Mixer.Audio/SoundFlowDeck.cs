@@ -97,17 +97,28 @@ internal sealed class SoundFlowDeck : IDeck
             // still recorded so the UI shows what is cued up.
             if (_engine is null) return;
 
-            _stream = File.OpenRead(track.Path);
-            _provider = new StreamDataProvider(_engine, SoundFlowAudioEngine.Format, _stream);
-            _player = new SoundPlayer(_engine, SoundFlowAudioEngine.Format, _provider)
+            try
             {
-                Name = $"Deck{Id}",
-                PlaybackSpeed = _tempo,
-                Volume = _muted ? 0f : _volume
-            };
-            _player.PlaybackEnded += OnPlaybackEnded;
-            _player.AddModifier(_tap);
-            _output?.AddComponent(_player);
+                _stream = File.OpenRead(track.Path);
+                _provider = new StreamDataProvider(_engine, SoundFlowAudioEngine.Format, _stream);
+                _player = new SoundPlayer(_engine, SoundFlowAudioEngine.Format, _provider)
+                {
+                    Name = $"Deck{Id}",
+                    PlaybackSpeed = _tempo,
+                    Volume = _muted ? 0f : _volume
+                };
+                _player.PlaybackEnded += OnPlaybackEnded;
+                _player.AddModifier(_tap);
+                _output?.AddComponent(_player);
+            }
+            catch
+            {
+                // Release the half-opened file and leave the deck empty, so it never
+                // shows a track it cannot play.
+                TearDownPlayer();
+                Track = null;
+                throw;
+            }
         }
     }
 

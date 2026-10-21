@@ -25,7 +25,7 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
     private readonly Stopwatch _clock = Stopwatch.StartNew();
     private CancellationTokenSource? _scan;
     private bool _suppressFaderFeedback;
-    private readonly System.Collections.Generic.List<DeckViewModel> _pausedByPauseAll = [];
+    private readonly List<DeckViewModel> _pausedByPauseAll = [];
 
     public AnalysisQueue Analysis { get; }
 
@@ -64,12 +64,13 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
         _autoCue = new AutoCue(engine.DeckA, engine.DeckB, DequeueFor, TimingFor)
         {
             Enabled = _settings.AutoCueEnabled,
-            CrossfadeDuration = TimeSpan.FromSeconds(_settings.CrossfadeSeconds),
+            CrossfadeDuration = TimeSpan.FromSeconds(Math.Max(1, _settings.CrossfadeSeconds)),
             CrossfaderPosition = _settings.CrossfaderPosition
         };
         TempoMatch = _settings.AutoCueTempoMatch;
         DeckA.UserChangedTempo += (_, _) => _autoCue.CancelGlide(DeckId.A);
         DeckB.UserChangedTempo += (_, _) => _autoCue.CancelGlide(DeckId.B);
+        _autoCue.LoadFailed += (_, why) => StatusMessage = why;
         _autoCue.CrossfaderMoved += (_, pos) =>
         {
             // The auto-cue owns the fader during a transition; echo it to the slider
@@ -81,7 +82,8 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
 
         _crossfaderPosition = _settings.CrossfaderPosition;
         _autoCueEnabled = _settings.AutoCueEnabled;
-        _crossfadeSeconds = _settings.CrossfadeSeconds;
+        // A hand-edited or old settings file can hold 0, which would make every fade instant.
+        _crossfadeSeconds = Math.Max(1, _settings.CrossfadeSeconds);
         _analyseLibraryBpm = _settings.AnalyseLibraryBpm ?? !App.UsePhoneLayout;
         Analysis.Analysed += (_, path) => { _timings.Remove(path); OnAnalysed(path); };
         DeckA.BpmCorrected += (_, path) => { _timings.Remove(path); OnAnalysed(path); };
@@ -237,7 +239,7 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
     }
     [ObservableProperty] private int _crossfadeSeconds;
 
-    public System.Collections.Generic.IReadOnlyList<CueMode> CueModes { get; } =
+    public IReadOnlyList<CueMode> CueModes { get; } =
         [CueMode.Off, CueMode.Split, CueMode.Device];
 
     /// <summary>Outputs the headphones can be on, in Device mode.</summary>
@@ -266,7 +268,7 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
     /// Replaces the default browser roots when the platform knows better. Android
     /// supplies its mounted storage volumes here, SD cards and USB drives included.
     /// </summary>
-    public Func<System.Collections.Generic.IEnumerable<StorageRoot>>? PlatformRoots { get; set; }
+    public Func<IEnumerable<StorageRoot>>? PlatformRoots { get; set; }
 
     partial void OnCrossfaderPositionChanged(float value)
     {
@@ -357,7 +359,7 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
         return _timings[track.Path] = ComputeTiming(track);
     }
 
-    private readonly System.Collections.Generic.Dictionary<string, TrackTiming?> _timings = new();
+    private readonly Dictionary<string, TrackTiming?> _timings = new();
 
     private TrackTiming? ComputeTiming(Track track)
     {
@@ -412,7 +414,7 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
             Roots.Add(new FolderNode(path));
     }
 
-    private static System.Collections.Generic.IEnumerable<string> CandidateRoots()
+    private static IEnumerable<string> CandidateRoots()
     {
         yield return DefaultFolder();
         if (OperatingSystem.IsAndroid())
@@ -435,7 +437,7 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
         if (!string.IsNullOrWhiteSpace(path)) await LoadFolderAsync(path);
     }
 
-    private readonly System.Collections.Generic.List<LibraryRow> _folderRows = [];
+    private readonly List<LibraryRow> _folderRows = [];
 
     private LibraryRow RowFor(Track t)
     {
@@ -447,7 +449,7 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
     public const int RecentlyPlayedLimit = 100;
 
     /// <summary>Paths played since the app started, for the library's tick.</summary>
-    private readonly System.Collections.Generic.HashSet<string> _sessionPlayed = [];
+    private readonly HashSet<string> _sessionPlayed = [];
 
     private void OnTrackPlayed(Track track)
     {
@@ -476,7 +478,7 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
     }
 
     /// <summary>Replaces what the library lists. Later tasks hook background analysis in here.</summary>
-    private void SetFolderRows(System.Collections.Generic.IEnumerable<LibraryRow> rows)
+    private void SetFolderRows(IEnumerable<LibraryRow> rows)
     {
         _folderRows.Clear();
         _folderRows.AddRange(rows);
@@ -500,7 +502,7 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
         {
             var found = await Task.Run(() =>
             {
-                var list = new System.Collections.Generic.List<LibraryRow>();
+                var list = new List<LibraryRow>();
                 foreach (string file in Directory.EnumerateFiles(path).Where(SupportedFormats.IsAudio))
                 {
                     ct.ThrowIfCancellationRequested();
@@ -655,19 +657,34 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
     [RelayCommand]
     private void SavePlaylists()
     {
-        string dir = PlaylistDirectory();
-        M3uPlaylist.Save(Path.Combine(dir, "deck-a.m3u"), DeckA.Playlist);
-        M3uPlaylist.Save(Path.Combine(dir, "deck-b.m3u"), DeckB.Playlist);
-        StatusMessage = $"Playlists saved to {dir}";
+        // Also runs on every Android pause: a full or read-only disk must not crash.
+        try
+        {
+            string dir = PlaylistDirectory();
+            M3uPlaylist.Save(Path.Combine(dir, "deck-a.m3u"), DeckA.Playlist);
+            M3uPlaylist.Save(Path.Combine(dir, "deck-b.m3u"), DeckB.Playlist);
+            StatusMessage = $"Playlists saved to {dir}";
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            StatusMessage = $"Could not save playlists: {e.Message}";
+        }
     }
 
     [RelayCommand]
     private void LoadPlaylists()
     {
-        string dir = PlaylistDirectory();
-        Restore(DeckA, Path.Combine(dir, "deck-a.m3u"));
-        Restore(DeckB, Path.Combine(dir, "deck-b.m3u"));
-        StatusMessage = "Playlists loaded";
+        try
+        {
+            string dir = PlaylistDirectory();
+            Restore(DeckA, Path.Combine(dir, "deck-a.m3u"));
+            Restore(DeckB, Path.Combine(dir, "deck-b.m3u"));
+            StatusMessage = "Playlists loaded";
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            StatusMessage = $"Could not load playlists: {e.Message}";
+        }
 
         static void Restore(DeckViewModel deck, string path)
         {
@@ -678,13 +695,15 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
         }
     }
 
-    private static string PlaylistDirectory()
+    /// <summary>Where playlists are kept. Settable so tests stay out of the real one.</summary>
+    public string PlaylistFolder { get; init; } = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+        "MkbMixer", "playlists");
+
+    private string PlaylistDirectory()
     {
-        string dir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "MkbMixer", "playlists");
-        Directory.CreateDirectory(dir);
-        return dir;
+        Directory.CreateDirectory(PlaylistFolder);
+        return PlaylistFolder;
     }
 
     /// <summary>Persists settings and playlists on the way out.</summary>

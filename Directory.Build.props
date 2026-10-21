@@ -1,0 +1,20 @@
+<Project>
+  <!-- Shared by every project. Each project still sets its own TargetFramework,
+       since the Android head targets net10.0-android. -->
+  <PropertyGroup>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <!-- Not on the Android head: its implicit usings bring in Android.App, whose
+       Application would collide with Avalonia's. -->
+  <PropertyGroup Condition="'$(MSBuildProjectName)' != 'Mkb.Mixer.App.Android'">
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <!-- CI fails on new warnings, so they cannot quietly pile up; local builds stay
+       lenient while iterating. The Android head is left out: its SDK raises
+       warnings outside this code's control. -->
+  <PropertyGroup Condition="'$(CI)' == 'true' And '$(MSBuildProjectName)' != 'Mkb.Mixer.App.Android'">
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+</Project>
