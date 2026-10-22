@@ -22,4 +22,8 @@
     <ProjectReference Include="..\Mkb.Mixer.Audio\Mkb.Mixer.Audio.csproj" />
     <ProjectReference Include="..\Mkb.Mixer.Library\Mkb.Mixer.Library.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Mkb.Mixer.Tests" />
+  </ItemGroup>
+
 </Project>

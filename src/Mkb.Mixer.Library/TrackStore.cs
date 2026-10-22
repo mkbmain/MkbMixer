@@ -11,8 +11,10 @@ namespace Mkb.Mixer.Library;
 /// Held in memory and written about two seconds after the last change, so a burst
 /// of background analysis is one write, not hundreds. Writes go to a temp file
 /// and are moved over the real one, so a crash mid-write cannot corrupt it. A
-/// corrupt or unreadable file starts the store empty rather than stopping the app,
-/// as <see cref="SettingsStore"/> does.
+/// corrupt or unreadable file is renamed aside (see <see cref="CorruptFiles"/>) and
+/// the store starts empty rather than stopping the app, as <see cref="SettingsStore"/>
+/// does. If it cannot be renamed, the store stops writing for the session so the
+/// original is never overwritten; <see cref="LoadProblem"/> says which happened.
 /// </remarks>
 public sealed class TrackStore : IDisposable
 {
@@ -27,6 +29,7 @@ public sealed class TrackStore : IDisposable
     private readonly Lock _writeGate = new();
     private readonly Timer? _saveTimer;
     private bool _dirty;
+    private bool _writesDisabled;
 
     /// <param name="path">Where to save, or null to keep everything in memory.</param>
     public TrackStore(string? path, TimeSpan? saveDelay = null)
@@ -37,6 +40,9 @@ public sealed class TrackStore : IDisposable
         if (path is not null)
             _saveTimer = new Timer(_ => Flush());
     }
+
+    /// <summary>Set if the file could not be read at startup; null otherwise.</summary>
+    public LoadProblem? LoadProblem { get; private set; }
 
     public static TrackStore InMemory() => new(null);
 
@@ -129,7 +135,7 @@ public sealed class TrackStore : IDisposable
     /// <summary>Writes now if anything has changed. Safe to call from any thread.</summary>
     public void Flush()
     {
-        if (_path is null) return;
+        if (_path is null || _writesDisabled) return;
         lock (_writeGate)
         {
             string json;
@@ -163,7 +169,7 @@ public sealed class TrackStore : IDisposable
         Flush();
     }
 
-    private static Dictionary<string, TrackInfo> Load(string? path)
+    private Dictionary<string, TrackInfo> Load(string? path)
     {
         var empty = new Dictionary<string, TrackInfo>(PathComparer);
         if (path is null || !File.Exists(path)) return empty;
@@ -182,6 +188,9 @@ public sealed class TrackStore : IDisposable
         }
         catch (Exception e) when (e is JsonException or IOException or UnauthorizedAccessException)
         {
+            string? movedTo = CorruptFiles.SetAside(path, DateTime.Now);
+            _writesDisabled = movedTo is null;
+            LoadProblem = new LoadProblem(Path.GetFileName(path), movedTo);
             return empty;
         }
 

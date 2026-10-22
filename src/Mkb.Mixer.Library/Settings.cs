@@ -55,6 +55,7 @@ public sealed class SettingsStore
         NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals
     };
     private readonly string _path;
+    private bool _writesDisabled;
 
     public SettingsStore(string path) => _path = path;
 
@@ -63,8 +64,12 @@ public sealed class SettingsStore
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
         "MkbMixer", "settings.json"));
 
+    /// <summary>Set by <see cref="Load"/> if the file could not be read; null otherwise.</summary>
+    public LoadProblem? LoadProblem { get; private set; }
+
     public AppSettings Load()
     {
+        LoadProblem = null;
         try
         {
             if (!File.Exists(_path))
@@ -74,13 +79,18 @@ public sealed class SettingsStore
         }
         catch (Exception e) when (e is JsonException or IOException or UnauthorizedAccessException)
         {
-            // A corrupt or unreadable settings file should never stop the app starting.
+            // A corrupt or unreadable settings file should never stop the app starting,
+            // but it is kept, not overwritten. If it cannot be moved, Save stays off.
+            string? movedTo = CorruptFiles.SetAside(_path, DateTime.Now);
+            _writesDisabled = movedTo is null;
+            LoadProblem = new LoadProblem(Path.GetFileName(_path), movedTo);
             return new AppSettings();
         }
     }
 
     public void Save(AppSettings settings)
     {
+        if (_writesDisabled) return;
         try
         {
             string? dir = Path.GetDirectoryName(_path);

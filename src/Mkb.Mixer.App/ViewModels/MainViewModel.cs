@@ -116,6 +116,27 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
         engine.CueMix = _cueMix;
         _cueDevice = _settings.CueDevice;
         CueMode = _settings.CueMode;
+
+        // Last of all, so a store that could not be read is not hidden by the audio
+        // or cue messages above.
+        if (DescribeLoadProblems(tracks.LoadProblem, settingsStore.LoadProblem) is { } problems)
+            StatusMessage = problems;
+    }
+
+    /// <summary>One status line for whichever stores could not be read at startup, or null.</summary>
+    internal static string? DescribeLoadProblems(LoadProblem? tracks, LoadProblem? settings)
+    {
+        string[] parts = new[] { Describe(tracks, "track data"), Describe(settings, "settings") }
+            .OfType<string>().ToArray();
+        return parts.Length > 0 ? string.Join(" ", parts) : null;
+
+        static string? Describe(LoadProblem? problem, string what) => problem switch
+        {
+            null => null,
+            { MovedTo: null } => $"Couldn't read saved {what} ({problem.FileName}) and couldn't move it aside; "
+                               + "changes this session won't be saved.",
+            _ => $"Couldn't read saved {what}; kept it as {Path.GetFileName(problem.MovedTo)} and started fresh."
+        };
     }
 
     /// <summary>
