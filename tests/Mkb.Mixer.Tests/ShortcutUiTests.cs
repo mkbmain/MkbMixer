@@ -61,20 +61,38 @@ public class ShortcutUiTests
         Assert.Equal("abc", box.Text);
     });
 
-    [Fact]
-    public void CtrlQWhileBpmBoxFocusedDoesNothing() => AvaloniaTest.Run(() =>
+    /// <summary>The text part of each real number box: the two library BPM filters, then the crossfade seconds.</summary>
+    private static (TextBox Bpm, TextBox Fade) NumberBoxes(Window w)
     {
-        // The deck has no BPM text box yet, so stand one in: any TextBox counts as text entry.
-        var (window, _, engine) = Build();
-        var bpm = new TextBox { Text = "120" };
-        ((Panel)window.GetVisualDescendants().OfType<Grid>().First()).Children.Add(bpm);
+        List<NumericUpDown> all = w.GetVisualDescendants().OfType<NumericUpDown>().ToList();
+        static TextBox Inner(NumericUpDown n) => n.GetVisualDescendants().OfType<TextBox>().First();
+        return (Inner(all.First(n => n.Classes.Contains("bpmfilter"))),
+                Inner(all.First(n => !n.Classes.Contains("bpmfilter"))));
+    }
+
+    private static TextBox Box(Window w, bool fade)
+    {
+        var (bpm, f) = NumberBoxes(w);
+        TextBox box = fade ? f : bpm;
+        box.Focus();
         Dispatcher.UIThread.RunJobs();
-        bpm.Focus();
+        Assert.True(box.IsFocused);
+        return box;
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void CtrlQWhileNumberBoxFocusedDoesNothing(bool fade) => AvaloniaTest.Run(() =>
+    {
+        var (window, _, engine) = Build();
+        TextBox box = Box(window, fade);
+        string? before = box.Text;
 
         Tap(window, Key.Q);
 
         Assert.Equal(PlaybackState.Stopped, engine.A.State);
-        Assert.Equal("120", bpm.Text);
+        Assert.Equal(before, box.Text);
     });
 
     [Fact]
@@ -84,10 +102,7 @@ public class ShortcutUiTests
         Tap(window, Key.F);
         Assert.True(SearchBox(window).IsFocused);
 
-        var other = new TextBox();
-        ((Panel)window.GetVisualDescendants().OfType<Grid>().First()).Children.Add(other);
-        Dispatcher.UIThread.RunJobs();
-        other.Focus();
+        Box(window, fade: false);
         Tap(window, Key.F);
         Assert.True(SearchBox(window).IsFocused);
     });
@@ -101,6 +116,21 @@ public class ShortcutUiTests
 
         Tap(window, Key.Escape, RawInputModifiers.None);
         Assert.False(SearchBox(window).IsFocused);
+
+        Tap(window, Key.Q);
+        Assert.Equal(PlaybackState.Playing, engine.A.State);
+    });
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void EscapeInNumberBoxLeavesItAndReenablesShortcuts(bool fade) => AvaloniaTest.Run(() =>
+    {
+        var (window, _, engine) = Build();
+        TextBox box = Box(window, fade);
+
+        Tap(window, Key.Escape, RawInputModifiers.None);
+        Assert.False(box.IsFocused);
 
         Tap(window, Key.Q);
         Assert.Equal(PlaybackState.Playing, engine.A.State);
