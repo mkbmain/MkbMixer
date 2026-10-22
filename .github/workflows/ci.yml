@@ -31,8 +31,6 @@ jobs:
   apk:
     needs: test
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v7
 
@@ -84,8 +82,94 @@ jobs:
           path: dist/*.apk
           if-no-files-found: error
 
-      - name: Attach to GitHub release
-        if: startsWith(github.ref, 'refs/tags/v')
+  # Self-contained, so the download runs without a .NET install. Not single-file
+  # and not trimmed: miniaudio's native library has to sit beside the executable.
+  desktop:
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { rid: linux-x64, os: ubuntu-latest, archive: tar.gz }
+          - { rid: win-x64, os: windows-latest, archive: zip }
+          - { rid: osx-arm64, os: macos-latest, archive: tar.gz }
+          # An arm64 runner cannot execute an x64 build, so this one is not smoke-tested.
+          - { rid: osx-x64, os: macos-latest, archive: tar.gz, smoke: false }
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+
+      # A v1.2.3 tag stamps version 1.2.3; other builds are named dev and keep the
+      # project's own version, since "dev" is not a valid assembly version.
+      - name: Publish
+        env:
+          RID: ${{ matrix.rid }}
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+            VERSION_ARG="-p:Version=$VERSION"
+          else
+            VERSION=dev
+            VERSION_ARG=""
+          fi
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          dotnet publish src/Mkb.Mixer.App.Desktop -c Release -r "$RID" --self-contained \
+            $VERSION_ARG -o "out/mkb-mixer-$VERSION-$RID"
+
+      # Runners have no sound card, but --audio-info still lists the compiled-in
+      # backends, which proves the native library loads. On Windows the redirect is
+      # what captures the output of the WinExe program.
+      - name: Smoke test
+        if: matrix.smoke != false
+        working-directory: out/mkb-mixer-${{ env.VERSION }}-${{ matrix.rid }}
+        run: |
+          ./Mkb.Mixer.App.Desktop --audio-info > audio-info.txt
+          cat audio-info.txt
+          grep -q "miniaudio compiled-in backends" audio-info.txt
+          rm audio-info.txt
+
+      - name: Archive
+        env:
+          RID: ${{ matrix.rid }}
+        run: |
+          NAME="mkb-mixer-$VERSION-$RID"
+          mkdir -p dist
+          cd out
+          if [[ "${{ matrix.archive }}" == zip ]]; then
+            7z a -tzip "../dist/$NAME.zip" "$NAME"
+          else
+            tar -czf "../dist/$NAME.tar.gz" "$NAME"
+          fi
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: mkb-mixer-${{ matrix.rid }}
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    needs: [apk, desktop]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      # gh release create --verify-tag needs a repository to look the tag up in.
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v7
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" dist/*.apk --generate-notes --verify-tag
+        run: gh release create "$GITHUB_REF_NAME" dist/* --generate-notes --verify-tag

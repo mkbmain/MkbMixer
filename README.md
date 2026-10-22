@@ -26,6 +26,27 @@ Works on Linux: it is developed and tested there, with audio through
 PulseAudio or PipeWire (JACK and ALSA as fallbacks). If you get no sound, see
 [If playback is silent](#if-playback-is-silent).
 
+### Downloads
+
+Each push and PR builds self-contained desktop archives (no .NET install
+needed), and pushing a `v*` tag attaches them to the GitHub release. Pick the
+one for your system:
+
+- `mkb-mixer-<version>-linux-x64.tar.gz` for Linux
+- `mkb-mixer-<version>-win-x64.zip` for Windows
+- `mkb-mixer-<version>-osx-arm64.tar.gz` for Apple silicon Macs
+- `mkb-mixer-<version>-osx-x64.tar.gz` for Intel Macs
+
+Extract it and run `./Mkb.Mixer.App.Desktop` from the folder on Linux and macOS,
+or `Mkb.Mixer.App.Desktop.exe` on Windows.
+
+The macOS builds are unsigned, so Gatekeeper blocks the first launch. Either
+right-click the app and choose *Open*, or clear the quarantine flag:
+
+```bash
+xattr -dr com.apple.quarantine mkb-mixer-<version>-osx-arm64
+```
+
 ## Android
 
 Needs the .NET Android workload (`dotnet workload install android`) and an
@@ -42,7 +63,8 @@ It is signed with your local debug key unless `ANDROID_KEYSTORE`,
 script.
 
 CI builds a Release APK on every push and PR (the `mkb-mixer-apk` artifact on the
-run), and pushing a `v*` tag attaches it to a GitHub release. A tag such as
+run), and pushing a `v*` tag attaches it to the same GitHub release as the
+desktop archives. A tag such as
 `v1.2.3` stamps the APK as version 1.2.3 with version code 1002003, so each
 release installs as an upgrade over the last; set `MKB_VERSION=1.2.3` to do the
 same with `build-apk.sh` locally. To sign those with
