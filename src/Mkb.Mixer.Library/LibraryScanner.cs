@@ -12,6 +12,10 @@ public static class LibraryScanner
     private static readonly string[] SkipDirectories =
         ["$recycle.bin", "system volume information", ".git", "node_modules"];
 
+    // Links are not followed: one pointing back up the tree, like /proc/self/root
+    // on Linux, would list everything below it over and over.
+    private static readonly EnumerationOptions NoLinks = new() { AttributesToSkip = FileAttributes.ReparsePoint };
+
     public static async IAsyncEnumerable<string> ScanAsync(
         string root,
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default)
@@ -27,23 +31,24 @@ public static class LibraryScanner
             ct.ThrowIfCancellationRequested();
             string dir = pending.Pop();
 
-            foreach (string sub in SafeEnumerate(dir, directories: true))
+            // Listed on the thread pool: a caller on the UI thread would otherwise
+            // wait on every directory read, which on an SD card or "/" is noticeable.
+            (string[] subs, string[] files) = await Task.Run(
+                () => (SafeEnumerate(dir, directories: true), SafeEnumerate(dir, directories: false)), ct);
+
+            foreach (string sub in subs)
             {
                 string name = Path.GetFileName(sub);
                 if (!SkipDirectories.Contains(name, StringComparer.OrdinalIgnoreCase))
                     pending.Push(sub);
             }
 
-            foreach (string file in SafeEnumerate(dir, directories: false))
+            foreach (string file in files)
             {
                 ct.ThrowIfCancellationRequested();
                 if (SupportedFormats.IsAudio(file))
                     yield return file;
             }
-
-            // Yield to the scheduler so a scan of a large tree never monopolises
-            // the thread pool thread it happens to be running on.
-            await Task.Yield();
         }
     }
 
@@ -53,7 +58,7 @@ public static class LibraryScanner
         try
         {
             return directories
-                ? Directory.GetDirectories(dir)
+                ? Directory.GetDirectories(dir, "*", NoLinks)
                 : Directory.GetFiles(dir);
         }
         catch (UnauthorizedAccessException) { return []; }

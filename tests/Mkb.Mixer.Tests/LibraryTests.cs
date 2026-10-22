@@ -139,6 +139,21 @@ public class LibraryScannerTests : IDisposable
     }
 
     [Fact]
+    public async Task DoesNotFollowDirectoryLinks()
+    {
+        // A link back up the tree, like /proc/self/root on Linux, would otherwise
+        // list everything below it again and again.
+        Touch("a.mp3", "nested/b.mp3");
+        Directory.CreateSymbolicLink(Path.Combine(_dir, "nested", "loop"), _dir);
+
+        var found = new List<string>();
+        await foreach (var f in LibraryScanner.ScanAsync(_dir))
+            found.Add(Path.GetFileName(f));
+
+        Assert.Equal(["a.mp3", "b.mp3"], found.Order());
+    }
+
+    [Fact]
     public async Task MissingRootYieldsNothing()
     {
         var found = new List<string>();

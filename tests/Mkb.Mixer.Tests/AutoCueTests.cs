@@ -179,4 +179,21 @@ public class AutoCueTests
         cue.Tick(Fade);
         Assert.Equal(0f, cue.CrossfaderPosition, 3);
     }
+
+    [Fact]
+    public void FadeFinishesWhenTheOutgoingTrackDoes_IfLessThanAFadeIsLeft()
+    {
+        // Seeked near the end, or the auto-cue switched on late: a full-length fade
+        // would outlive the track, and its end would start that deck's next track.
+        var (cue, a, b, q) = Setup();
+        q.Enqueue(NextTrack);
+        a.Play(); a.SetRemaining(TimeSpan.FromSeconds(5));
+
+        cue.Tick(TimeSpan.Zero);
+        cue.Tick(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(AutoCueState.Idle, cue.State);
+        Assert.Equal(Crossfader.DeckBOnly, cue.CrossfaderPosition, 3);
+        Assert.Equal(PlaybackState.Stopped, a.State);
+    }
 }

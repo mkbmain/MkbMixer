@@ -29,6 +29,7 @@ public sealed class AutoCue(
     Func<Track, TrackTiming?>? timing = null)
 {
     private TimeSpan _fadeStartedAt;
+    private TimeSpan _fadeDuration;
     private float _fadeFrom;
     private float _fadeTo;
     private IDeck? _outgoing;
@@ -135,6 +136,11 @@ public sealed class AutoCue(
         _fadeFrom = CrossfaderPosition;
         _fadeTo = incoming.Id == DeckId.B ? Crossfader.DeckBOnly : Crossfader.DeckAOnly;
         _fadeStartedAt = now;
+        // Never longer than the outgoing file has left: if it ended mid-fade, its
+        // deck would start its own next track, only for the fade to stop it. The
+        // file's end, not its last sound, which may already be behind the playhead.
+        TimeSpan toEnd = (active.Duration - active.Position) / (active.Tempo > 0 ? active.Tempo : 1f);
+        _fadeDuration = active.Duration > TimeSpan.Zero && toEnd < CrossfadeDuration ? toEnd : CrossfadeDuration;
         State = AutoCueState.Transitioning;
 
         AdvanceFade(now);
@@ -195,7 +201,7 @@ public sealed class AutoCue(
     private void AdvanceFade(TimeSpan now)
     {
         double elapsed = (now - _fadeStartedAt).TotalSeconds;
-        double total = CrossfadeDuration.TotalSeconds;
+        double total = _fadeDuration.TotalSeconds;
         float t = total <= 0 ? 1f : (float)Math.Clamp(elapsed / total, 0.0, 1.0);
 
         CrossfaderPosition = _fadeFrom + (_fadeTo - _fadeFrom) * t;

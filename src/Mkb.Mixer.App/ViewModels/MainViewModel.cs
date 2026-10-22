@@ -403,11 +403,6 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
         }
     }
 
-    /// <summary>
-    /// Puts back the playlists <see cref="SaveState()"/> saved last time, without a
-    /// status message. The app calls this once at launch; it is not in the
-    /// constructor because <see cref="PlaylistFolder"/> is only set after it.
-    /// </summary>
     private int _forgetStarted;
 
     /// <summary>
@@ -421,6 +416,11 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
         _ = Task.Run(_tracks.ForgetMissing);
     }
 
+    /// <summary>
+    /// Puts back the playlists <see cref="SaveState()"/> saved last time, without a
+    /// status message. The app calls this once at launch; it is not in the
+    /// constructor because <see cref="PlaylistFolder"/> is only set after it.
+    /// </summary>
     public void RestorePlaylists() => ReadPlaylists(reportSuccess: false);
 
     [RelayCommand]
