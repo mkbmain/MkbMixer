@@ -28,7 +28,8 @@ PulseAudio or PipeWire (JACK and ALSA as fallbacks). If you get no sound, see
 
 ### Downloads
 
-Each push and PR builds self-contained desktop archives (no .NET install
+Each push and PR builds self-contained desktop archives (the `mkb-mixer-<rid>`
+artifacts on the workflow run; no .NET install
 needed), and pushing a `v*` tag attaches them to the GitHub release. Pick the
 one for your system:
 

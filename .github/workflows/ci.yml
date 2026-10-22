@@ -94,7 +94,7 @@ jobs:
           - { rid: win-x64, os: windows-latest, archive: zip }
           - { rid: osx-arm64, os: macos-latest, archive: tar.gz }
           # An arm64 runner cannot execute an x64 build, so this one is not smoke-tested.
-          - { rid: osx-x64, os: macos-latest, archive: tar.gz, smoke: false }
+          - { rid: osx-x64, os: macos-latest, archive: tar.gz, nosmoke: true }
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -127,7 +127,7 @@ jobs:
       # backends, which proves the native library loads. On Windows the redirect is
       # what captures the output of the WinExe program.
       - name: Smoke test
-        if: matrix.smoke != false
+        if: ${{ !matrix.nosmoke }}
         working-directory: out/mkb-mixer-${{ env.VERSION }}-${{ matrix.rid }}
         run: |
           ./Mkb.Mixer.App.Desktop --audio-info > audio-info.txt
