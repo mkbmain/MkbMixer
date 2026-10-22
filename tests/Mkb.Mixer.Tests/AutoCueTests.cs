@@ -179,4 +179,81 @@ public class AutoCueTests
         cue.Tick(Fade);
         Assert.Equal(0f, cue.CrossfaderPosition, 3);
     }
+
+    [Fact]
+    public void FadeFinishesWhenTheOutgoingTrackDoes_IfLessThanAFadeIsLeft()
+    {
+        // Seeked near the end, or the auto-cue switched on late: a full-length fade
+        // would outlive the track, and its end would start that deck's next track.
+        var (cue, a, b, q) = Setup();
+        q.Enqueue(NextTrack);
+        a.Play(); a.SetRemaining(TimeSpan.FromSeconds(5));
+
+        cue.Tick(TimeSpan.Zero);
+        cue.Tick(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(AutoCueState.Idle, cue.State);
+        Assert.Equal(Crossfader.DeckBOnly, cue.CrossfaderPosition, 3);
+        Assert.Equal(PlaybackState.Stopped, a.State);
+    }
+
+    [Fact]
+    public void OwnsTheOutgoingDecksEndWhileFadingAndAfter()
+    {
+        // The deck's end-of-track event is handled on a later UI job, so it can
+        // land either side of the tick that finishes the fade.
+        var (cue, a, b, q) = Setup();
+        q.Enqueue(NextTrack);
+        a.Load(new Track("/a.mp3", "A", Duration: TimeSpan.FromMinutes(4)));
+        a.Play(); a.SetRemaining(TimeSpan.FromSeconds(5));
+
+        cue.Tick(TimeSpan.Zero);
+        Assert.True(cue.OwnsEndOf(DeckId.A));
+        Assert.False(cue.OwnsEndOf(DeckId.B));
+
+        cue.Tick(TimeSpan.FromSeconds(5.1));
+        Assert.Equal(AutoCueState.Idle, cue.State);
+        Assert.True(cue.OwnsEndOf(DeckId.A));
+    }
+
+    [Fact]
+    public void GivesTheEndBackOnceTheDeckMovesOn()
+    {
+        var (cue, a, b, q) = Setup();
+        q.Enqueue(NextTrack);
+        a.Load(new Track("/a.mp3", "A", Duration: TimeSpan.FromMinutes(4)));
+        a.Play(); a.SetRemaining(TimeSpan.FromSeconds(5));
+        cue.Tick(TimeSpan.Zero);
+        cue.Tick(TimeSpan.FromSeconds(5.1));
+
+        a.Load(new Track("/c.mp3", "C", Duration: TimeSpan.FromMinutes(4)));
+        Assert.False(cue.OwnsEndOf(DeckId.A));
+    }
+
+    [Fact]
+    public void GivesTheEndBackWhenTheSameTrackIsPlayedAgain()
+    {
+        var (cue, a, b, q) = Setup();
+        q.Enqueue(NextTrack);
+        a.Load(new Track("/a.mp3", "A", Duration: TimeSpan.FromMinutes(4)));
+        a.Play(); a.SetRemaining(TimeSpan.FromSeconds(5));
+        cue.Tick(TimeSpan.Zero);
+        cue.Tick(TimeSpan.FromSeconds(5.1));
+
+        a.Play();
+        cue.Tick(TimeSpan.FromSeconds(5.2));
+        Assert.False(cue.OwnsEndOf(DeckId.A));
+    }
+
+    [Fact]
+    public void OwnsNoEndsWhenSwitchedOffMidFade()
+    {
+        var (cue, a, b, q) = Setup();
+        q.Enqueue(NextTrack);
+        a.Play(); a.SetRemaining(TimeSpan.FromSeconds(5));
+        cue.Tick(TimeSpan.Zero);
+
+        cue.Enabled = false;
+        Assert.False(cue.OwnsEndOf(DeckId.A));
+    }
 }

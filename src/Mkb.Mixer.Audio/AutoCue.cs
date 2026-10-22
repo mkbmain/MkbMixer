@@ -29,9 +29,12 @@ public sealed class AutoCue(
     Func<Track, TrackTiming?>? timing = null)
 {
     private TimeSpan _fadeStartedAt;
+    private TimeSpan _fadeDuration;
     private float _fadeFrom;
     private float _fadeTo;
     private IDeck? _outgoing;
+    private IDeck? _fadedOut;
+    private Track? _fadedOutTrack;
 
     /// <summary>Tempo matching only bends a track this far; further apart, it would sound wrong.</summary>
     public const double MaxTempoMatch = 0.08;
@@ -84,6 +87,18 @@ public sealed class AutoCue(
     /// <summary>0 is deck A alone, 1 is deck B alone.</summary>
     public float CrossfaderPosition { get; set; }
 
+    /// <summary>
+    /// True when the deck's track ending is the auto-cue's business: it is fading
+    /// that deck out, or just has and stopped it. The deck's own end-of-track
+    /// handling must then not start its next track, which the fade would stop, or
+    /// which would start after the stop and play on behind the fader. The end is
+    /// reported from the audio thread and handled on a later UI job, so it can
+    /// arrive either side of the tick that finishes the fade.
+    /// </summary>
+    public bool OwnsEndOf(DeckId deck) =>
+        Enabled && (_outgoing?.Id == deck
+                    || _fadedOut?.Id == deck && ReferenceEquals(_fadedOut.Track, _fadedOutTrack));
+
     /// <summary>Raised whenever the auto-cue moves the fader, so the UI can follow along.</summary>
     public event EventHandler<float>? CrossfaderMoved;
 
@@ -101,6 +116,9 @@ public sealed class AutoCue(
     public void Tick(TimeSpan now)
     {
         AdvanceGlide(now);
+        // Played again since the fade: its next end is the deck's own again.
+        if (_fadedOut is { State: PlaybackState.Playing })
+            _fadedOut = null;
         if (!Enabled)
             return;
 
@@ -135,6 +153,11 @@ public sealed class AutoCue(
         _fadeFrom = CrossfaderPosition;
         _fadeTo = incoming.Id == DeckId.B ? Crossfader.DeckBOnly : Crossfader.DeckAOnly;
         _fadeStartedAt = now;
+        // Never longer than the outgoing file has left: if it ended mid-fade, its
+        // deck would start its own next track, only for the fade to stop it. The
+        // file's end, not its last sound, which may already be behind the playhead.
+        TimeSpan toEnd = (active.Duration - active.Position) / (active.Tempo > 0 ? active.Tempo : 1f);
+        _fadeDuration = active.Duration > TimeSpan.Zero && toEnd < CrossfadeDuration ? toEnd : CrossfadeDuration;
         State = AutoCueState.Transitioning;
 
         AdvanceFade(now);
@@ -195,7 +218,7 @@ public sealed class AutoCue(
     private void AdvanceFade(TimeSpan now)
     {
         double elapsed = (now - _fadeStartedAt).TotalSeconds;
-        double total = CrossfadeDuration.TotalSeconds;
+        double total = _fadeDuration.TotalSeconds;
         float t = total <= 0 ? 1f : (float)Math.Clamp(elapsed / total, 0.0, 1.0);
 
         CrossfaderPosition = _fadeFrom + (_fadeTo - _fadeFrom) * t;
@@ -205,6 +228,8 @@ public sealed class AutoCue(
             return;
 
         _outgoing?.Stop();
+        _fadedOut = _outgoing;
+        _fadedOutTrack = _outgoing?.Track;
         _outgoing = null;
         State = AutoCueState.Idle;
         if (_matched && TempoMatch == TempoMatchMode.MatchAndGlide && _incoming is not null)

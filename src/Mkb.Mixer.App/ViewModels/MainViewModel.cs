@@ -70,6 +70,8 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
             CrossfaderPosition = _settings.CrossfaderPosition
         };
         TempoMatch = _settings.AutoCueTempoMatch;
+        DeckA.EndOwnedElsewhere = () => _autoCue.OwnsEndOf(DeckId.A);
+        DeckB.EndOwnedElsewhere = () => _autoCue.OwnsEndOf(DeckId.B);
         DeckA.UserChangedTempo += (_, _) => _autoCue.CancelGlide(DeckId.A);
         DeckB.UserChangedTempo += (_, _) => _autoCue.CancelGlide(DeckId.B);
         _autoCue.LoadFailed += (_, why) => StatusMessage = why;
@@ -403,11 +405,6 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
         }
     }
 
-    /// <summary>
-    /// Puts back the playlists <see cref="SaveState()"/> saved last time, without a
-    /// status message. The app calls this once at launch; it is not in the
-    /// constructor because <see cref="PlaylistFolder"/> is only set after it.
-    /// </summary>
     private int _forgetStarted;
 
     /// <summary>
@@ -421,6 +418,11 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
         _ = Task.Run(_tracks.ForgetMissing);
     }
 
+    /// <summary>
+    /// Puts back the playlists <see cref="SaveState()"/> saved last time, without a
+    /// status message. The app calls this once at launch; it is not in the
+    /// constructor because <see cref="PlaylistFolder"/> is only set after it.
+    /// </summary>
     public void RestorePlaylists() => ReadPlaylists(reportSuccess: false);
 
     [RelayCommand]

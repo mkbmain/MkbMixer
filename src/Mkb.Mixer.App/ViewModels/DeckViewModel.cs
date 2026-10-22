@@ -48,7 +48,8 @@ public sealed partial class DeckViewModel : ViewModelBase
         _deck.TrackEnded += (_, _) => Dispatcher.UIThread.Post(() =>
         {
             ReportPlayed();
-            PlayNextFromPlaylist();
+            if (EndOwnedElsewhere?.Invoke() != true)
+                PlayNextFromPlaylist();
         });
     }
 
@@ -69,6 +70,12 @@ public sealed partial class DeckViewModel : ViewModelBase
 
     /// <summary>The other deck, for SYNC. Set once by <see cref="MainViewModel"/>.</summary>
     public DeckViewModel? Other { get; set; }
+
+    /// <summary>
+    /// True when something else, the auto-cue, is handling this deck's track
+    /// ending, so the deck must not start its next track. Set once by <see cref="MainViewModel"/>.
+    /// </summary>
+    public Func<bool>? EndOwnedElsewhere { get; set; }
 
     public bool HasTrack => _deck.Track is not null;
 
