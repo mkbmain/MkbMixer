@@ -428,7 +428,7 @@ public sealed class SoundFlowAudioEngine : IAudioEngine
             try
             {
                 using var stream = File.OpenRead(path);
-                var provider = new StreamDataProvider(_engine, Format, stream);
+                using var provider = new StreamDataProvider(_engine, Format, stream);
 
                 // Fed chunk by chunk: holding the whole decode costs ~21 MB a minute.
                 var analyser = new TrackAnalyser(Format.Channels, Format.SampleRate, provider.Length);
