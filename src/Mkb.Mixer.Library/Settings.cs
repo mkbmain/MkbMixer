@@ -26,6 +26,12 @@ public sealed class AppSettings
     public bool? AnalyseLibraryBpm { get; set; }
 
     /// <summary>
+    /// Keys the user changed, by action id. Text rather than a key type so this project
+    /// needs no UI reference. A missing id means the default; an empty string means unbound.
+    /// </summary>
+    public Dictionary<string, string>? Shortcuts { get; set; }
+
+    /// <summary>
     /// Pulls a hand-edited or old file back into range, so nothing downstream sees a
     /// fade of 0 seconds, a fader past its end or an enum value that does not exist.
     /// </summary>
