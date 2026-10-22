@@ -77,6 +77,20 @@ public class ShortcutMapTests
     }
 
     [Fact]
+    public void NullNumericAndReservedSavedValuesFallBackToDefault()
+    {
+        var map = Map(new()
+        {
+            ["deckA.sync"] = null!,
+            ["deckA.cue"] = "Ctrl+1",
+            ["deckB.sync"] = "Escape"
+        });
+        Assert.Equal(G("Ctrl+E"), map.GestureFor("deckA.sync"));
+        Assert.Equal(G("Ctrl+W"), map.GestureFor("deckA.cue"));
+        Assert.Equal(G("Ctrl+I"), map.GestureFor("deckB.sync"));
+    }
+
+    [Fact]
     public void NewDefaultClashingWithSavedKeyStartsUnbound()
     {
         var map = Map(new() { ["deckA.sync"] = "Ctrl+Q" });

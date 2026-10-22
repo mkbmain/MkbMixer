@@ -40,6 +40,7 @@ public sealed class ShortcutMap
             foreach (var action in catalog)
             {
                 if (!saved.TryGetValue(action.Id, out var text)) continue;
+                if (text == null) continue; // a null from a hand-edited file: fall back to the default
                 if (text.Length == 0) { map._keys[action.Id] = null; handled.Add(action.Id); continue; }
                 var gesture = TryParse(text);
                 if (gesture == null) continue; // unreadable: fall back to the default
@@ -136,8 +137,9 @@ public sealed class ShortcutMap
                 default: return null;
             }
         }
-        // IsDefined first: Enum.TryParse would accept a bare number such as "999".
-        if (Enum.TryParse<Key>(parts[^1], true, out var key) && Enum.IsDefined(key) && key != Key.None && !IsReserved(key))
+        // Enum.TryParse accepts numbers, so "1" would become Key.Cancel; real digit keys are "D1".
+        if (parts[^1].Length > 0 && !char.IsDigit(parts[^1][0])
+            && Enum.TryParse<Key>(parts[^1], true, out var key) && Enum.IsDefined(key) && key != Key.None && !IsReserved(key))
             return new KeyGesture(key, modifiers);
         return null;
     }
