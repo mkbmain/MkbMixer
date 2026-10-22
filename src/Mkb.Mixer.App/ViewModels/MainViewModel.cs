@@ -70,6 +70,8 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
             CrossfaderPosition = _settings.CrossfaderPosition
         };
         TempoMatch = _settings.AutoCueTempoMatch;
+        DeckA.EndOwnedElsewhere = () => _autoCue.OwnsEndOf(DeckId.A);
+        DeckB.EndOwnedElsewhere = () => _autoCue.OwnsEndOf(DeckId.B);
         DeckA.UserChangedTempo += (_, _) => _autoCue.CancelGlide(DeckId.A);
         DeckB.UserChangedTempo += (_, _) => _autoCue.CancelGlide(DeckId.B);
         _autoCue.LoadFailed += (_, why) => StatusMessage = why;

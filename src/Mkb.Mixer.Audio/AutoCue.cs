@@ -33,6 +33,8 @@ public sealed class AutoCue(
     private float _fadeFrom;
     private float _fadeTo;
     private IDeck? _outgoing;
+    private IDeck? _fadedOut;
+    private Track? _fadedOutTrack;
 
     /// <summary>Tempo matching only bends a track this far; further apart, it would sound wrong.</summary>
     public const double MaxTempoMatch = 0.08;
@@ -85,6 +87,18 @@ public sealed class AutoCue(
     /// <summary>0 is deck A alone, 1 is deck B alone.</summary>
     public float CrossfaderPosition { get; set; }
 
+    /// <summary>
+    /// True when the deck's track ending is the auto-cue's business: it is fading
+    /// that deck out, or just has and stopped it. The deck's own end-of-track
+    /// handling must then not start its next track, which the fade would stop, or
+    /// which would start after the stop and play on behind the fader. The end is
+    /// reported from the audio thread and handled on a later UI job, so it can
+    /// arrive either side of the tick that finishes the fade.
+    /// </summary>
+    public bool OwnsEndOf(DeckId deck) =>
+        Enabled && (_outgoing?.Id == deck
+                    || _fadedOut?.Id == deck && ReferenceEquals(_fadedOut.Track, _fadedOutTrack));
+
     /// <summary>Raised whenever the auto-cue moves the fader, so the UI can follow along.</summary>
     public event EventHandler<float>? CrossfaderMoved;
 
@@ -102,6 +116,9 @@ public sealed class AutoCue(
     public void Tick(TimeSpan now)
     {
         AdvanceGlide(now);
+        // Played again since the fade: its next end is the deck's own again.
+        if (_fadedOut is { State: PlaybackState.Playing })
+            _fadedOut = null;
         if (!Enabled)
             return;
 
@@ -211,6 +228,8 @@ public sealed class AutoCue(
             return;
 
         _outgoing?.Stop();
+        _fadedOut = _outgoing;
+        _fadedOutTrack = _outgoing?.Track;
         _outgoing = null;
         State = AutoCueState.Idle;
         if (_matched && TempoMatch == TempoMatchMode.MatchAndGlide && _incoming is not null)
