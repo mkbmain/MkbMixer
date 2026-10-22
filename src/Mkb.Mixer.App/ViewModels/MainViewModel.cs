@@ -7,6 +7,7 @@ using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Mkb.Mixer.App.Services;
+using Mkb.Mixer.App.Shortcuts;
 using Mkb.Mixer.Audio;
 using Mkb.Mixer.Library;
 
@@ -43,6 +44,8 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
         _engine = engine;
         _settingsStore = settingsStore;
         _settings = settingsStore.Load();
+        Shortcuts = ShortcutMap.Load(ShortcutCatalog.ForThisPlatform, _settings.Shortcuts);
+        ShortcutKeys = new ShortcutRouter(this);
         _tracks = tracks;
         Analysis = new AnalysisQueue(engine, tracks, post, manualAnalysis);
         Library = new LibraryViewModel(tracks, Analysis, () => AudibleDeck().HeardBpm, _settings.LastFolder,
@@ -224,6 +227,31 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
 
         (CrossfaderPosition <= Crossfader.Centre ? DeckA : DeckB).PlayCommand.Execute(null);
     }
+
+    /// <summary>Which key does what; saved with the settings.</summary>
+    public ShortcutMap Shortcuts { get; }
+
+    /// <summary>Where the view sends key events.</summary>
+    public ShortcutRouter ShortcutKeys { get; }
+
+    /// <summary>Pauses everything that is playing, or if nothing was, resumes.</summary>
+    public void TogglePauseAll()
+    {
+        if (!PauseAll()) ResumePaused();
+    }
+
+    /// <summary>Moves the crossfader a tenth of its travel; -1 toward A, +1 toward B.</summary>
+    public void StepCrossfader(int direction) =>
+        CrossfaderPosition = Math.Clamp(CrossfaderPosition + 0.1f * Math.Sign(direction), 0f, 1f);
+
+    public void CentreCrossfader() => CrossfaderPosition = Crossfader.Centre;
+
+    /// <summary>Raised when a shortcut asks for the library search box to take focus.</summary>
+    public event EventHandler? FocusSearchRequested;
+
+    internal void RequestFocusSearch() => FocusSearchRequested?.Invoke(this, EventArgs.Empty);
+
+    [ObservableProperty] private bool _isShortcutEditorOpen;
 
     public DeckViewModel DeckA { get; }
     public DeckViewModel DeckB { get; }
@@ -510,6 +538,7 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
         _settings.CueDevice = CueDevice;
         _settings.CueMix = CueMix;
         _settings.AnalyseLibraryBpm = Library.AnalyseLibraryBpm;
+        _settings.Shortcuts = Shortcuts.ToOverrides();
         _settingsStore.Save(_settings);
         WritePlaylists(reportSuccess: false);
         _tracks.Flush();

@@ -98,6 +98,25 @@ public sealed partial class DeckViewModel : ViewModelBase
         Tempo = Math.Clamp(theirs / mine, 0.5, 1.5);
     }
 
+    /// <summary>Keyboard play/pause: the same two commands the transport buttons run.</summary>
+    public void TogglePlayPause()
+    {
+        if (State == PlaybackState.Playing) PauseCommand.Execute(null);
+        else PlayCommand.Execute(null);
+    }
+
+    /// <summary>Keyboard headphone cue; does nothing when cue mode is off, as the button is then hidden.</summary>
+    public void ToggleCue()
+    {
+        if (IsCueAvailable) IsCued = !IsCued;
+    }
+
+    /// <summary>Keyboard sync, honouring the same gate as the Sync button.</summary>
+    public void SyncIfPossible()
+    {
+        if (SyncCommand.CanExecute(null)) SyncCommand.Execute(null);
+    }
+
     [RelayCommand]
     private void HalveBpm() => ScaleBpm(0.5);
 
