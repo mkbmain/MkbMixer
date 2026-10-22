@@ -169,7 +169,10 @@ public class UiSmokeTests
         foreach (var sub in new[] { "Albums", "Albums/1999", "Singles", "Mixes" })
             Directory.CreateDirectory(Path.Combine(demo, sub));
         var root = new FolderNode(demo) { IsExpanded = true };
-        root.Children.First(c => c.Name == "Albums").IsExpanded = true;
+        AvaloniaTest.PumpUntil(root.ChildrenLoaded);
+        FolderNode albums = root.Children.First(c => c.Name == "Albums");
+        albums.IsExpanded = true;
+        AvaloniaTest.PumpUntil(albums.ChildrenLoaded);
         vm.Library.Roots.Insert(0, root);
         Dispatcher.UIThread.RunJobs();
         window.UpdateLayout();

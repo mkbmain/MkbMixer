@@ -40,12 +40,23 @@ public class FolderNodeTests : IDisposable
     }
 
     [Fact]
-    public void ExpandingReplacesThePlaceholderWithRealFolders()
+    public async Task ExpandingReplacesThePlaceholderWithRealFolders()
     {
         var node = new FolderNode(_root) { IsExpanded = true };
+        await node.ChildrenLoaded!;
 
         Assert.DoesNotContain(node.Children, c => c.IsPlaceholder);
         Assert.Equal(["Albums", "Singles"], node.Children.Select(c => c.Name).Order());
+    }
+
+    [Fact]
+    public async Task ExpandedChildrenKnowWhetherTheyCanExpand()
+    {
+        var node = new FolderNode(_root) { IsExpanded = true };
+        await node.ChildrenLoaded!;
+
+        Assert.True(node.Children.Single(c => c.Name == "Albums").Children.Single().IsPlaceholder);
+        Assert.Empty(node.Children.Single(c => c.Name == "Singles").Children);
     }
 
     [Fact]
@@ -91,9 +102,12 @@ public class FolderNodeTests : IDisposable
 
         container.IsExpanded = true;
         Dispatcher.UIThread.RunJobs();
+        Assert.True(node.IsExpanded, "expanding the TreeViewItem did not reach the view model");
+
+        // The children are read off the UI thread and added back on it.
+        AvaloniaTest.PumpUntil(node.ChildrenLoaded);
         window.UpdateLayout();
 
-        Assert.True(node.IsExpanded, "expanding the TreeViewItem did not reach the view model");
         Assert.DoesNotContain(node.Children, c => c.IsPlaceholder);
     });
 }
