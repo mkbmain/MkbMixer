@@ -149,6 +149,29 @@ public class StoreRecoveryTests : IDisposable
         Assert.Empty(CorruptCopies());
     }
 
+    [Theory]
+    [InlineData("""{"CrossfadeSeconds":7,"Shortcuts":{"deckA.playPause":5,"deckA.cue":true,"deckA.sync":{},"deckB.cue":"Ctrl+W"}}""")]
+    [InlineData("""{"CrossfadeSeconds":7,"Shortcuts":5}""")]
+    [InlineData("""{"CrossfadeSeconds":7,"Shortcuts":["Ctrl+W"]}""")]
+    public void OddShortcutValuesDoNotCostTheRestOfTheSettings(string content)
+    {
+        File.WriteAllText(SettingsPath, content);
+        var store = new SettingsStore(SettingsPath);
+
+        AppSettings loaded = store.Load();
+
+        Assert.Null(store.LoadProblem);
+        Assert.Equal(7, loaded.CrossfadeSeconds);
+        Assert.Empty(CorruptCopies());
+        if (loaded.Shortcuts is { } shortcuts)
+        {
+            Assert.Null(shortcuts["deckA.playPause"]);
+            Assert.Null(shortcuts["deckA.cue"]);
+            Assert.Null(shortcuts["deckA.sync"]);
+            Assert.Equal("Ctrl+W", shortcuts["deckB.cue"]);
+        }
+    }
+
     [Fact]
     public void MissingSettingsFileIsNotAProblem()
     {

@@ -29,6 +29,7 @@ public sealed class AppSettings
     /// Keys the user changed, by action id. Text rather than a key type so this project
     /// needs no UI reference. A missing id means the default; an empty string means unbound.
     /// </summary>
+    [JsonConverter(typeof(LenientStringDictionaryConverter))]
     public Dictionary<string, string>? Shortcuts { get; set; }
 
     /// <summary>
@@ -114,4 +115,37 @@ public sealed class SettingsStore
             // Losing settings is not worth crashing over.
         }
     }
+}
+
+/// <summary>
+/// Reads a string-to-string map without throwing on a hand-edited value of the wrong
+/// type: a non-string value reads as null, and a non-object reads as no map at all.
+/// Otherwise one bad shortcut would make the whole settings file unreadable.
+/// </summary>
+internal sealed class LenientStringDictionaryConverter : JsonConverter<Dictionary<string, string>?>
+{
+    public override Dictionary<string, string>? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType != JsonTokenType.StartObject)
+        {
+            reader.Skip();
+            return null;
+        }
+        var result = new Dictionary<string, string>();
+        while (reader.Read() && reader.TokenType == JsonTokenType.PropertyName)
+        {
+            string key = reader.GetString()!;
+            reader.Read();
+            if (reader.TokenType == JsonTokenType.String) result[key] = reader.GetString()!;
+            else
+            {
+                reader.Skip();
+                result[key] = null!; // ShortcutMap treats null as "use the default"
+            }
+        }
+        return result;
+    }
+
+    public override void Write(Utf8JsonWriter writer, Dictionary<string, string>? value, JsonSerializerOptions options) =>
+        JsonSerializer.Serialize(writer, value);
 }
