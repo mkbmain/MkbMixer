@@ -108,6 +108,8 @@ public class MainActivity : AvaloniaMainActivity
         // There is no reliable "closing" moment on Android: a paused app may be
         // killed without warning, so this is the last safe point to save.
         CurrentViewModel()?.SaveState();
+        // A key released while paused never arrives, so a held nudge would run on.
+        CurrentViewModel()?.ShortcutKeys.ReleaseAll();
         base.OnPause();
     }
 

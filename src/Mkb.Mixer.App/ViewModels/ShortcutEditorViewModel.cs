@@ -76,7 +76,9 @@ public sealed partial class ShortcutEditorViewModel : ObservableObject
     {
         if (_capturingId is not { } id) return false;
         if (key == Key.Escape) { EndCapture(); return true; }
-        if (ShortcutMap.IsReserved(key)) return true; // Tab or a modifier on its own: keep waiting
+        // Tab, a modifier on its own, or Key.None (a key the platform could not name, which
+        // would then match every other unnamed key): keep waiting.
+        if (key == Key.None || ShortcutMap.IsReserved(key)) return true;
 
         modifiers &= Meaningful;
         var other = _map.Assign(id, new KeyGesture(key, modifiers));

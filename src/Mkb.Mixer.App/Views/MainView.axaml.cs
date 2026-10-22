@@ -1,7 +1,10 @@
 using System;
+using System.Linq;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.Threading;
+using Avalonia.VisualTree;
 using Mkb.Mixer.App.ViewModels;
 
 namespace Mkb.Mixer.App.Views;
@@ -32,9 +35,6 @@ public partial class MainView : UserControl
             AttachShortcuts(vm);
             Focus();   // rest focus here so keys have a route through this view
         };
-
-        AddHandler(KeyDownEvent, OnKeyDown, RoutingStrategies.Tunnel);
-        AddHandler(KeyUpEvent, OnKeyUp, RoutingStrategies.Tunnel);
     }
 
     private MainViewModel? _shortcutVm;
@@ -47,6 +47,27 @@ public partial class MainView : UserControl
         {
             SearchBox.Focus();
             SearchBox.SelectAll();
+        };
+
+        // With nothing focused (a closed overlay, a button that just disabled itself) Avalonia
+        // sends key events to the TopLevel alone, so listen there: this view would never see them.
+        if (TopLevel.GetTopLevel(this) is { } top)
+        {
+            top.AddHandler(KeyDownEvent, OnKeyDown, RoutingStrategies.Tunnel);
+            top.AddHandler(KeyUpEvent, OnKeyUp, RoutingStrategies.Tunnel);
+        }
+
+        // The editor is modal: put focus inside it on open, and back on this view on close.
+        vm.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName != nameof(MainViewModel.IsShortcutEditorOpen)) return;
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (vm.IsShortcutEditorOpen)
+                    (ShortcutEditorHost.GetVisualDescendants().OfType<Button>().FirstOrDefault() as InputElement ?? ShortcutEditorHost).Focus();
+                else
+                    Focus();
+            });
         };
 
         // A key released while another window has focus never reaches us, so end any held nudge.

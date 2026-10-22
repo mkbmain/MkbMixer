@@ -231,4 +231,17 @@ public class ShortcutRouterTests
         var (vm, _) = Mixer();
         Assert.False(Tap(vm, Key.Q, KeyModifiers.None));
     }
+
+    /// <summary>A renamed catalogue id would otherwise match a key and silently do nothing.</summary>
+    [Fact]
+    public void EveryCatalogueActionIsHandledByTheRouter()
+    {
+        foreach (var action in Mkb.Mixer.App.Shortcuts.ShortcutCatalog.ForThisPlatform)
+        {
+            var (vm, _) = Mixer();
+            var g = action.Default!;
+            Assert.True(Tap(vm, g.Key, g.KeyModifiers), $"{action.Id} has no handler in ShortcutRouter");
+            vm.ShortcutKeys.ReleaseAll();
+        }
+    }
 }

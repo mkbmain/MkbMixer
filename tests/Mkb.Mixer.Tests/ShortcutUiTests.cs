@@ -1,3 +1,4 @@
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Input;
@@ -142,5 +143,47 @@ public class ShortcutUiTests
         var (window, _, engine) = Build(phone: true);
         Tap(window, Key.Q);
         Assert.Equal(PlaybackState.Stopped, engine.A.State);
+    });
+
+    private static Button ButtonWithText(Window w, string text) =>
+        w.GetVisualDescendants().OfType<Button>().First(b => b.Content as string == text);
+
+    private static void Click(Window w, Control c)
+    {
+        Point p = c.TranslatePoint(new Point(c.Bounds.Width / 2, c.Bounds.Height / 2), w)!.Value;
+        w.MouseDown(p, Avalonia.Input.MouseButton.Left);
+        w.MouseUp(p, Avalonia.Input.MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+    }
+
+    [Fact]
+    public void ShortcutsStillWorkAfterTheEditorIsClosedWithItsButton() => AvaloniaTest.Run(() =>
+    {
+        var (window, vm, engine) = Build();
+        Click(window, ButtonWithText(window, "Keys"));
+        Assert.True(vm.IsShortcutEditorOpen);
+        Click(window, ButtonWithText(window, "Close"));
+        Assert.False(vm.IsShortcutEditorOpen);
+
+        Tap(window, Key.Q);
+
+        Assert.Equal(PlaybackState.Playing, engine.A.State);
+    });
+
+    [Fact]
+    public void TabNeverLeavesTheOpenEditor() => AvaloniaTest.Run(() =>
+    {
+        var (window, vm, _) = Build();
+        vm.OpenShortcutEditorCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+        var editor = window.GetVisualDescendants().OfType<ShortcutEditorView>().Single();
+
+        for (int i = 0; i < 12; i++)
+        {
+            var focused = window.FocusManager!.GetFocusedElement() as Visual;
+            Assert.True(focused != null && (focused == editor || editor.IsVisualAncestorOf(focused)),
+                $"focus left the editor after {i} Tab presses: {focused}");
+            Tap(window, Key.Tab, RawInputModifiers.None);
+        }
     });
 }

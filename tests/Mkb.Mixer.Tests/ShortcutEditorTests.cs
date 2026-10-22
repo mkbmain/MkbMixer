@@ -64,6 +64,7 @@ public class ShortcutEditorTests
     [InlineData(Key.RightShift)]
     [InlineData(Key.LWin)]
     [InlineData(Key.Tab)]
+    [InlineData(Key.None)]
     public void ReservedKeysKeepWaitingAndAreNeverAssigned(Key key)
     {
         var map = NewMap();

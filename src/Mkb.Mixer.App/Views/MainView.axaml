@@ -7,7 +7,10 @@
              Focusable="True"
              Background="{StaticResource WindowBg}">
 
-  <Grid Margin="10" RowDefinitions="Auto,Auto,*,Auto">
+  <!-- The overlay is a sibling of the content, not a child, so disabling the content
+       (which takes it out of Tab order and clicks) leaves the overlay live. -->
+  <Grid>
+  <Grid Margin="10" RowDefinitions="Auto,Auto,*,Auto" IsEnabled="{Binding !IsShortcutEditorOpen}">
 
     <!-- Decks -->
     <Grid Grid.Row="0" ColumnDefinitions="*,10,*">
@@ -165,9 +168,12 @@
                  ToolTip.Tip="The audio backend and device in use" />
     </Grid>
 
-    <!-- Shortcuts editor: dimmed backdrop over everything, panel in the middle -->
-    <Grid Grid.RowSpan="4" Background="#B0000000" IsVisible="{Binding IsShortcutEditorOpen}">
-      <views:ShortcutEditorView DataContext="{Binding ShortcutEditor}"
+  </Grid>
+
+    <!-- Shortcuts editor: dimmed backdrop over everything, panel in the middle. Tab cycles inside it. -->
+    <Grid Background="#B0000000" IsVisible="{Binding IsShortcutEditorOpen}"
+          KeyboardNavigation.TabNavigation="Cycle">
+      <views:ShortcutEditorView x:Name="ShortcutEditorHost" DataContext="{Binding ShortcutEditor}"
                                 CloseCommand="{Binding $parent[views:MainView].((vm:MainViewModel)DataContext).CloseShortcutEditorCommand}"
                                 HorizontalAlignment="Center" MaxWidth="560" Margin="24" />
     </Grid>

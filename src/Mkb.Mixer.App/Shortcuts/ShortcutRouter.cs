@@ -38,8 +38,8 @@ public sealed class ShortcutRouter(MainViewModel vm)
         // but do not run the action again.
         if (!_down.Add(key)) return true;
 
-        Run(action, key);
-        return true;
+        // An id nothing handles (say, a renamed one) must not swallow its key for nothing.
+        return Run(action, key);
     }
 
     /// <summary>Ends a nudge started by <paramref name="key"/>, whatever modifiers are held now.</summary>
@@ -59,18 +59,18 @@ public sealed class ShortcutRouter(MainViewModel vm)
         _nudging.Clear();
     }
 
-    private void Run(ShortcutAction action, Key key)
+    /// <returns>False when no handler knows the action's id.</returns>
+    private bool Run(ShortcutAction action, Key key)
     {
         string id = action.Id;
         if (id.StartsWith(DeckAPrefix, StringComparison.Ordinal))
-            RunDeck(vm.DeckA, id[DeckAPrefix.Length..], key);
-        else if (id.StartsWith(DeckBPrefix, StringComparison.Ordinal))
-            RunDeck(vm.DeckB, id[DeckBPrefix.Length..], key);
-        else
-            RunMix(id);
+            return RunDeck(vm.DeckA, id[DeckAPrefix.Length..], key);
+        if (id.StartsWith(DeckBPrefix, StringComparison.Ordinal))
+            return RunDeck(vm.DeckB, id[DeckBPrefix.Length..], key);
+        return RunMix(id);
     }
 
-    private void RunDeck(DeckViewModel deck, string name, Key key)
+    private bool RunDeck(DeckViewModel deck, string name, Key key)
     {
         switch (name)
         {
@@ -87,9 +87,11 @@ public sealed class ShortcutRouter(MainViewModel vm)
                     HotCueSlot slot = deck.HotCues[n - 1];
                     if (name.EndsWith(".clear", StringComparison.Ordinal)) deck.ClearHotCueCommand.Execute(slot);
                     else deck.HotCueCommand.Execute(slot);
+                    break;
                 }
-                break;
+                return false;
         }
+        return true;
     }
 
     private void StartNudge(DeckViewModel deck, Key key, int direction)
@@ -98,7 +100,7 @@ public sealed class ShortcutRouter(MainViewModel vm)
         _nudging[key] = deck;
     }
 
-    private void RunMix(string id)
+    private bool RunMix(string id)
     {
         switch (id)
         {
@@ -113,6 +115,8 @@ public sealed class ShortcutRouter(MainViewModel vm)
                 if (vm.IsShortcutEditorOpen) vm.CloseShortcutEditorCommand.Execute(null);
                 else vm.OpenShortcutEditorCommand.Execute(null);
                 break;
+            default: return false;
         }
+        return true;
     }
 }
