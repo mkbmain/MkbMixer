@@ -45,6 +45,7 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
         _settingsStore = settingsStore;
         _settings = settingsStore.Load();
         Shortcuts = ShortcutMap.Load(ShortcutCatalog.ForThisPlatform, _settings.Shortcuts);
+        ShortcutEditor = new ShortcutEditorViewModel(Shortcuts);
         ShortcutKeys = new ShortcutRouter(this);
         _tracks = tracks;
         Analysis = new AnalysisQueue(engine, tracks, post, manualAnalysis);
@@ -252,6 +253,25 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
     internal void RequestFocusSearch() => FocusSearchRequested?.Invoke(this, EventArgs.Empty);
 
     [ObservableProperty] private bool _isShortcutEditorOpen;
+
+    /// <summary>The model behind the shortcuts overlay.</summary>
+    public ShortcutEditorViewModel ShortcutEditor { get; }
+
+    [RelayCommand]
+    private void OpenShortcutEditor() => IsShortcutEditorOpen = true;
+
+    /// <summary>
+    /// The one way the editor closes, so the keys are always saved: a crash or a kill
+    /// after closing must not lose what was just chosen.
+    /// </summary>
+    [RelayCommand]
+    private void CloseShortcutEditor()
+    {
+        ShortcutEditor.CancelCapture();
+        IsShortcutEditorOpen = false;
+        _settings.Shortcuts = Shortcuts.ToOverrides();
+        _settingsStore.Save(_settings);
+    }
 
     public DeckViewModel DeckA { get; }
     public DeckViewModel DeckB { get; }

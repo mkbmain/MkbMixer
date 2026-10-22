@@ -105,6 +105,47 @@ Bluetooth device that is not the audio output (a watch, say) disconnecting does
 not interrupt it. After one of those pauses the play button keeps working for 10
 minutes.
 
+## Keyboard shortcuts
+
+Every default needs `Ctrl`, so a stray key press never changes what is playing.
+Shortcuts are off while a text box has focus (the search box, the BPM and fade
+number boxes), except *Focus search*. They exist on desktop and tablets, not on
+the phone layout. Hold the key for *nudge*; it ends when the letter comes up.
+
+| Action | Deck A | Deck B |
+|---|---|---|
+| Play / pause (toggles) | `Ctrl+Q` | `Ctrl+P` |
+| Headphone cue on/off | `Ctrl+W` | `Ctrl+O` |
+| Sync | `Ctrl+E` | `Ctrl+I` |
+| Hot cue 1-4 (same as tapping the button) | `Ctrl+1`...`Ctrl+4` | `Ctrl+7`...`Ctrl+0` |
+| Clear hot cue 1-4 | `Ctrl+Shift+1`...`4` | `Ctrl+Shift+7`...`0` |
+| Nudge slower (hold) | `Ctrl+A` | `Ctrl+K` |
+| Nudge faster (hold) | `Ctrl+S` | `Ctrl+L` |
+| Add selected library track to this deck's playlist | `Ctrl+Z` | `Ctrl+M` |
+
+| Action | Default |
+|---|---|
+| Crossfader a step toward A (10% of its travel) | `Ctrl+5` |
+| Crossfader a step toward B | `Ctrl+6` |
+| Crossfader to centre | `Ctrl+T` |
+| Auto-cue on/off | `Ctrl+U` |
+| Pause everything / resume what was paused | `Ctrl+B` |
+| Focus the library search box | `Ctrl+F` (`Cmd+F` on macOS) |
+| Open the shortcuts editor | `Ctrl+,` |
+
+On macOS the defaults use the Control key, not Cmd, except *Focus search*.
+
+### Changing the keys
+
+Click **Keys** in the top bar (or press `Ctrl+,`). Click an action, then press the
+new key or combination; Escape cancels. If the key already belongs to another
+action the two swap, and the editor says which one moved. **Remove** leaves an
+action without a key, **Reset to defaults** restores them all, and **Close** (or
+Escape when nothing is waiting for a key) saves and dismisses the editor. Escape,
+Tab and modifier keys on their own can't be bound. A key without `Ctrl`, `Alt` or
+`Cmd` is allowed, with a warning, because it can fire by accident. Shortcuts are
+off while the editor is open.
+
 ## Headphone cue
 
 Each deck has a **CUE** button that sends it to the headphones before the

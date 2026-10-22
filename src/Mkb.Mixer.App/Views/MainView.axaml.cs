@@ -58,6 +58,18 @@ public partial class MainView : UserControl
 
     private void OnKeyDown(object? sender, KeyEventArgs e)
     {
+        // The editor comes first: while a row waits for a key, every key is an answer to it,
+        // and with nothing waiting Escape closes the editor.
+        if (_shortcutVm is { IsShortcutEditorOpen: true } editing)
+        {
+            if (editing.ShortcutEditor.Capture(e.Key, e.KeyModifiers)) { e.Handled = true; return; }
+            if (e.Key == Key.Escape && !InTextEntry())
+            {
+                editing.CloseShortcutEditorCommand.Execute(null);
+                e.Handled = true;
+                return;
+            }
+        }
         if (e.Key == Key.Escape && InTextEntry())
         {
             Focus();

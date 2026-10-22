@@ -1,0 +1,59 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Mkb.Mixer.App.ViewModels"
+             x:Class="Mkb.Mixer.App.Views.ShortcutEditorView"
+             x:Name="Root"
+             x:DataType="vm:ShortcutEditorViewModel">
+
+  <Border Classes="panel" Padding="16">
+    <Grid RowDefinitions="Auto,Auto,*,Auto">
+      <TextBlock Classes="heading" Text="KEYBOARD SHORTCUTS" />
+
+      <TextBlock Grid.Row="1" Margin="0,8,0,0" TextWrapping="Wrap" MinHeight="20"
+                 Foreground="{StaticResource Accent}" Text="{Binding Message}" />
+
+      <ScrollViewer Grid.Row="2" Margin="0,8,0,0" VerticalScrollBarVisibility="Auto">
+        <ItemsControl ItemsSource="{Binding Groups}" Margin="0,0,12,0">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:ShortcutGroup">
+              <StackPanel Margin="0,0,0,10">
+                <TextBlock Classes="dim" Text="{Binding Name}" Margin="0,4,0,4" />
+                <ItemsControl ItemsSource="{Binding Rows}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:ShortcutRow">
+                      <Grid ColumnDefinitions="*,150,Auto" Margin="0,2">
+                        <TextBlock Text="{Binding Label}" VerticalAlignment="Center"
+                                   TextTrimming="CharacterEllipsis" />
+                        <Button Grid.Column="1" HorizontalAlignment="Stretch"
+                                HorizontalContentAlignment="Center" Margin="8,0"
+                                Command="{Binding #Root.((vm:ShortcutEditorViewModel)DataContext).BeginCaptureCommand}"
+                                CommandParameter="{Binding Id}"
+                                ToolTip.Tip="Click, then press the new key">
+                          <Panel>
+                            <TextBlock Text="{Binding GestureText}" IsVisible="{Binding !IsCapturing}" />
+                            <TextBlock Text="Press a key…" IsVisible="{Binding IsCapturing}"
+                                       Foreground="{StaticResource Accent}" />
+                          </Panel>
+                        </Button>
+                        <Button Grid.Column="2" Content="Remove"
+                                Command="{Binding #Root.((vm:ShortcutEditorViewModel)DataContext).UnbindCommand}"
+                                CommandParameter="{Binding Id}"
+                                ToolTip.Tip="Leave this action without a key" />
+                      </Grid>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </StackPanel>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </ScrollViewer>
+
+      <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right"
+                  Spacing="8" Margin="0,8,0,0">
+        <Button Content="Reset to defaults" Command="{Binding ResetToDefaultsCommand}" />
+        <Button Content="Close" Command="{Binding #Root.CloseCommand}" />
+      </StackPanel>
+    </Grid>
+  </Border>
+</UserControl>

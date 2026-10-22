@@ -108,7 +108,11 @@ public sealed class ShortcutRouter(MainViewModel vm)
             case "mix.autoCue": vm.AutoCueEnabled = !vm.AutoCueEnabled; break;
             case "mix.pauseAll": vm.TogglePauseAll(); break;
             case "mix.focusSearch": vm.RequestFocusSearch(); break;
-            case EditorId: vm.IsShortcutEditorOpen = !vm.IsShortcutEditorOpen; break;
+            case EditorId:
+                // Closing goes through its command so it always saves.
+                if (vm.IsShortcutEditorOpen) vm.CloseShortcutEditorCommand.Execute(null);
+                else vm.OpenShortcutEditorCommand.Execute(null);
+                break;
         }
     }
 }

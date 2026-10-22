@@ -67,7 +67,7 @@
     <!-- Library browser -->
     <Border Grid.Row="2" Classes="panel" Margin="0,10,0,0">
       <Grid RowDefinitions="Auto,*">
-        <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto,Auto,Auto">
+        <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto,Auto,Auto,Auto">
           <TextBlock Classes="heading" Text="LIBRARY" VerticalAlignment="Center" />
           <TextBox x:Name="SearchBox" Grid.Column="1" Margin="16,0" PlaceholderText="Search this folder and below…"
                    Text="{Binding Library.SearchText}" />
@@ -93,6 +93,9 @@
                   Command="{Binding SavePlaylistsCommand}" />
           <Button Grid.Column="7" Content="Load playlists" Margin="6,0,0,0"
                   Command="{Binding LoadPlaylistsCommand}" />
+          <Button Grid.Column="8" Content="Keys" Margin="6,0,0,0"
+                  Command="{Binding OpenShortcutEditorCommand}"
+                  ToolTip.Tip="Choose which keys run which actions (Ctrl+,)" />
         </Grid>
 
         <Grid Grid.Row="1" ColumnDefinitions="260,10,*" Margin="0,10,0,0">
@@ -160,6 +163,13 @@
       <TextBlock Grid.Column="2" Classes="dim" Margin="16,0,0,0"
                  Text="{Binding AudioStatus}"
                  ToolTip.Tip="The audio backend and device in use" />
+    </Grid>
+
+    <!-- Shortcuts editor: dimmed backdrop over everything, panel in the middle -->
+    <Grid Grid.RowSpan="4" Background="#B0000000" IsVisible="{Binding IsShortcutEditorOpen}">
+      <views:ShortcutEditorView DataContext="{Binding ShortcutEditor}"
+                                CloseCommand="{Binding $parent[views:MainView].((vm:MainViewModel)DataContext).CloseShortcutEditorCommand}"
+                                HorizontalAlignment="Center" MaxWidth="560" Margin="24" />
     </Grid>
   </Grid>
 </UserControl>
