@@ -165,16 +165,21 @@ public sealed class WaveformView : Control
         DisposeBars();
     }
 
+    // Made once for the first eight cues; any beyond that are rare enough to make per frame.
     private static readonly FormattedText?[] CueLabels = new FormattedText?[8];
+    private static readonly IPen?[] CuePens = new IPen?[8];
 
-    private static FormattedText CueLabel(int i)
-    {
-        if (i >= CueLabels.Length)
-            return new FormattedText((i + 1).ToString(CultureInfo.InvariantCulture),
-                CultureInfo.InvariantCulture, FlowDirection.LeftToRight, Typeface.Default, 10, Brushes.Black);
-        return CueLabels[i] ??= new FormattedText((i + 1).ToString(CultureInfo.InvariantCulture),
+    private static FormattedText CueLabel(int i) =>
+        i < CueLabels.Length ? CueLabels[i] ??= NewCueLabel(i) : NewCueLabel(i);
+
+    private static FormattedText NewCueLabel(int i) =>
+        new((i + 1).ToString(CultureInfo.InvariantCulture),
             CultureInfo.InvariantCulture, FlowDirection.LeftToRight, Typeface.Default, 10, Brushes.Black);
-    }
+
+    private static IPen CuePen(int i) =>
+        i < CuePens.Length ? CuePens[i] ??= NewCuePen(i) : NewCuePen(i);
+
+    private static IPen NewCuePen(int i) => new ImmutablePen(HotCuePalette.Brush(i).ToImmutable(), 2);
 
     public override void Render(DrawingContext context)
     {
@@ -212,7 +217,7 @@ public sealed class WaveformView : Control
             if (cues[i] is not { } fraction) continue;
             IBrush brush = HotCuePalette.Brush(i);
             double x = Math.Round(bounds.Width * fraction) + 0.5;
-            context.DrawLine(new Pen(brush, 2), new Point(x, 0), new Point(x, bounds.Height));
+            context.DrawLine(CuePen(i), new Point(x, 0), new Point(x, bounds.Height));
             FormattedText label = CueLabel(i);
             context.FillRectangle(brush, new Rect(x, 0, label.Width + 4, label.Height));
             context.DrawText(label, new Point(x + 2, 0));

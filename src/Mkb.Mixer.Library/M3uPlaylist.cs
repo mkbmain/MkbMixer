@@ -44,7 +44,7 @@ public static class M3uPlaylist
     /// leaving its second half to be read back as a track path.
     /// </summary>
     private static string OneLine(string text) =>
-        text.ReplaceLineEndings(" ").Replace('\r', ' ').Replace('\n', ' ');
+        text.ReplaceLineEndings(" ");
 
     public static IEnumerable<Track> Load(string path)
     {

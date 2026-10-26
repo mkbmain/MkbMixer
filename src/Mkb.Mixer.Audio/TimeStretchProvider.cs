@@ -281,8 +281,9 @@ internal sealed class TimeStretchProvider : ISoundDataProvider
 
     /// <summary>
     /// Waits for a read in progress. SoundFlow's mixer works from a snapshot of its
-    /// players, so removing one does not stop a callback already running it; freeing
-    /// the decoder under that callback would read freed native memory.
+    /// players, so removing one does not stop a callback already running it. SoundFlow's
+    /// decoder (1.4.1) already guards its own reads against its disposal; this lock keeps
+    /// the stretcher from relying on that, and from touching its source once disposed.
     /// </summary>
     public void Dispose()
     {
