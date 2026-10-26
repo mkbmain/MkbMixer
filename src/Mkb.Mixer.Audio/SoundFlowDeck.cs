@@ -1,3 +1,4 @@
+using SoundFlow.Structs;
 using SoundFlow.Backends.MiniAudio;
 using SoundFlow.Components;
 using SoundFlow.Providers;
@@ -10,6 +11,7 @@ internal sealed class SoundFlowDeck : IDeck
     private readonly MiniAudioEngine? _engine;
     private readonly SoundFlow.Components.Mixer? _output;
     private readonly Lock _gate = new();
+    private readonly AudioFormat _format;
 
     private SoundPlayer? _player;
     private TimeStretchProvider? _provider;
@@ -19,9 +21,12 @@ internal sealed class SoundFlowDeck : IDeck
     private bool _muted;
     private readonly CueTap _tap;
 
-    public SoundFlowDeck(DeckId id, MiniAudioEngine? engine, SoundFlow.Components.Mixer? output, CueBus cueBus)
+    /// <param name="format">What to decode to: the rate the output device actually opened at.</param>
+    public SoundFlowDeck(DeckId id, MiniAudioEngine? engine, SoundFlow.Components.Mixer? output, CueBus cueBus,
+                         AudioFormat format)
     {
         Id = id;
+        _format = format;
         _engine = engine;
         _output = output;
         // One tap for the deck's lifetime, moved onto each new player in Load, so
@@ -43,7 +48,7 @@ internal sealed class SoundFlowDeck : IDeck
     public TimeSpan Position =>
         _provider is null ? TimeSpan.Zero
             : TimeSpan.FromSeconds((double)_provider.Position
-                / SoundFlowAudioEngine.Format.Channels / SoundFlowAudioEngine.Format.SampleRate);
+                / _format.Channels / _format.SampleRate);
 
     public TimeSpan Duration =>
         _player is null ? TimeSpan.Zero : TimeSpan.FromSeconds(Math.Max(0, _player.Duration));
@@ -104,10 +109,10 @@ internal sealed class SoundFlowDeck : IDeck
             {
                 _stream = File.OpenRead(track.Path);
                 _provider = new TimeStretchProvider(
-                    new StreamDataProvider(_engine, SoundFlowAudioEngine.Format, _stream),
-                    SoundFlowAudioEngine.Format.Channels) { Speed = _tempo };
+                    new StreamDataProvider(_engine, _format, _stream),
+                    _format.Channels) { Speed = _tempo };
                 // The player stays at 1.0; the provider does the stretching, far cheaper.
-                _player = new SoundPlayer(_engine, SoundFlowAudioEngine.Format, _provider)
+                _player = new SoundPlayer(_engine, _format, _provider)
                 {
                     Name = $"Deck{Id}",
                     Volume = _muted ? 0f : _volume

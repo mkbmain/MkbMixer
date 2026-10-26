@@ -76,7 +76,7 @@ public class CueAdapterTests
     public void CueSurvivesLoadingANewTrack()
     {
         // Each Load builds a new SoundFlow player; the deck's tap must move with it.
-        var deck = new SoundFlowDeck(DeckId.A, engine: null, output: null, new CueBus());
+        var deck = new SoundFlowDeck(DeckId.A, engine: null, output: null, new CueBus(), SoundFlowAudioEngine.OutputFormat);
         deck.IsCued = true;
 
         deck.Load(new Track("/m/next.mp3", "Next"));

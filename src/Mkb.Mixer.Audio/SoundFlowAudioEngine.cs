@@ -45,6 +45,17 @@ public sealed class SoundFlowAudioEngine : IAudioEngine
         Layout = AudioFormat.GetLayoutFromChannels(2)
     };
 
+    /// <summary>
+    /// The output device's rate and channels, always as float: the mixer works in
+    /// float and leaves conversion to the device's own format to miniaudio.
+    /// </summary>
+    internal static AudioFormat DeckFormat(AudioFormat output) => Format with
+    {
+        SampleRate = output.SampleRate,
+        Channels = output.Channels,
+        Layout = AudioFormat.GetLayoutFromChannels(output.Channels)
+    };
+
     /// <summary>Formats to try, best first, if the preferred one is refused.</summary>
     private static AudioFormat[] CandidateFormats() =>
     [
@@ -130,8 +141,11 @@ public sealed class SoundFlowAudioEngine : IAudioEngine
             OutputError ??= "no usable audio backend";
         }
 
-        _a = new SoundFlowDeck(DeckId.A, _engine, _device?.MasterMixer, _cueBus);
-        _b = new SoundFlowDeck(DeckId.B, _engine, _device?.MasterMixer, _cueBus);
+        // The mixer does not resample, so decks must decode at the rate the device
+        // opened at; decoding at 44.1 kHz into a 48 kHz device plays 9% fast and sharp.
+        AudioFormat deckFormat = DeckFormat(_outputFormat);
+        _a = new SoundFlowDeck(DeckId.A, _engine, _device?.MasterMixer, _cueBus, deckFormat);
+        _b = new SoundFlowDeck(DeckId.B, _engine, _device?.MasterMixer, _cueBus, deckFormat);
     }
 
     /// <summary>
