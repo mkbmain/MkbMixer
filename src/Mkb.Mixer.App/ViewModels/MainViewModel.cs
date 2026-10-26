@@ -157,12 +157,21 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
         _timer.Start();
     }
 
+    private long _clockSecond = long.MinValue;
+    private (bool, bool, string, string)? _summaryInputs;
+
     /// <summary>Drives one transport update. Exposed so tests can step it directly.</summary>
     public void Tick(TimeSpan now)
     {
         DeckA.Refresh();
         DeckB.Refresh();
-        ClockText = DateTime.Now.ToLongTimeString();
+        // The clock shows whole seconds; formatting it ten times a second was waste.
+        DateTime wallClock = DateTime.Now;
+        if (wallClock.Ticks / TimeSpan.TicksPerSecond is var second && second != _clockSecond)
+        {
+            _clockSecond = second;
+            ClockText = wallClock.ToLongTimeString();
+        }
         _autoCue.Tick(now);
         if (CueMode == CueMode.Device && _engine.CueFault is { } fault)
         {
@@ -171,13 +180,18 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
             CueMode = CueMode.Off;
             StatusMessage = $"Headphone cue is off: {fault}";
         }
-        PlayingSummary = (DeckA.IsPlaying, DeckB.IsPlaying) switch
+        var summaryInputs = (DeckA.IsPlaying, DeckB.IsPlaying, DeckA.NowPlaying, DeckB.NowPlaying);
+        if (summaryInputs != _summaryInputs)
         {
-            (true, true) => $"{DeckA.NowPlaying} → {DeckB.NowPlaying}",
-            (true, false) => DeckA.NowPlaying,
-            (false, true) => DeckB.NowPlaying,
-            _ => string.Empty
-        };
+            _summaryInputs = summaryInputs;
+            PlayingSummary = (DeckA.IsPlaying, DeckB.IsPlaying) switch
+            {
+                (true, true) => $"{DeckA.NowPlaying} → {DeckB.NowPlaying}",
+                (true, false) => DeckA.NowPlaying,
+                (false, true) => DeckB.NowPlaying,
+                _ => string.Empty
+            };
+        }
         // After the summary, so whoever reacts to this sees the matching text.
         IsAnyDeckPlaying = DeckA.IsPlaying || DeckB.IsPlaying;
     }
@@ -515,8 +529,7 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
         {
             var loaded = M3uPlaylist.Load(path).ToList();
             if (loaded.Count == 0) return;
-            deck.Playlist.Clear();
-            foreach (Track t in loaded) deck.Playlist.Add(t);
+            deck.ReplacePlaylist(loaded);
         }
     }
 

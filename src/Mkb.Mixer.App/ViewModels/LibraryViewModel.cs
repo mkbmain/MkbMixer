@@ -1,8 +1,11 @@
 using System;
 using System.Collections.ObjectModel;
+using System.Collections.Specialized;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading;
+using System.Threading.Channels;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -35,6 +38,7 @@ public sealed partial class LibraryViewModel : ViewModelBase, IDisposable
         _analyseLibraryBpm = analyseBpm;
         _currentFolder = lastFolder ?? DefaultFolder();
         analysis.Analysed += (_, path) => RefreshBpm(path);
+        BrowserRows.CollectionChanged += TrackShownRows;
     }
 
     /// <summary>Raised with a line for the status bar.</summary>
@@ -70,7 +74,26 @@ public sealed partial class LibraryViewModel : ViewModelBase, IDisposable
             _ = LoadFolderAsync(value.Path);
     }
 
-    partial void OnSearchTextChanged(string value) => ApplyFilter();
+    partial void OnSearchTextChanged(string value) => _ = ApplyFilterSoonAsync();
+
+    /// <summary>
+    /// How long typing must pause before the list is re-filtered; every keystroke
+    /// rebuilt it. Zero filters at once, for tests.
+    /// </summary>
+    public TimeSpan FilterDelay { get; set; } = TimeSpan.FromMilliseconds(220);
+
+    private CancellationTokenSource? _pendingFilter;
+
+    private async Task ApplyFilterSoonAsync()
+    {
+        if (FilterDelay <= TimeSpan.Zero) { ApplyFilter(); return; }
+        _pendingFilter?.Cancel();
+        var pending = _pendingFilter = new CancellationTokenSource();
+        try { await Task.Delay(FilterDelay, pending.Token); }
+        catch (OperationCanceledException) { return; }
+        // Back on the UI thread; a synchronous filter since then has already run.
+        if (ReferenceEquals(_pendingFilter, pending)) ApplyFilter();
+    }
 
     /// <summary>
     /// Shared storage on Android: what the user sees as "Internal storage". The
@@ -134,6 +157,43 @@ public sealed partial class LibraryViewModel : ViewModelBase, IDisposable
 
     private readonly List<LibraryRow> _folderRows = [];
 
+    private static readonly StringComparer PathComparer =
+        OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
+
+    /// <summary>
+    /// <see cref="_folderRows"/> by path. An analysed track used to be found by a
+    /// scan of the whole list, O(n²) while a big folder was analysed.
+    /// </summary>
+    private readonly Dictionary<string, List<LibraryRow>> _rowsByPath = new(PathComparer);
+
+    /// <summary>What <see cref="BrowserRows"/> holds, so membership is O(1).</summary>
+    private readonly HashSet<LibraryRow> _shown = new(ReferenceEqualityComparer.Instance);
+
+    private void TrackShownRows(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        if (e.Action == NotifyCollectionChangedAction.Reset)
+        {
+            _shown.Clear();
+            _shown.UnionWith(BrowserRows);
+            return;
+        }
+        if (e.OldItems is not null)
+            foreach (LibraryRow row in e.OldItems) _shown.Remove(row);
+        if (e.NewItems is not null)
+            foreach (LibraryRow row in e.NewItems) _shown.Add(row);
+    }
+
+    private void AddFolderRow(LibraryRow row)
+    {
+        _folderRows.Add(row);
+        if (!_rowsByPath.TryGetValue(row.Track.Path, out List<LibraryRow>? same))
+            _rowsByPath[row.Track.Path] = same = [];
+        same.Add(row);
+    }
+
+    private IEnumerable<LibraryRow> RowsFor(string path) =>
+        _rowsByPath.TryGetValue(path, out List<LibraryRow>? rows) ? rows : [];
+
     private LibraryRow RowFor(Track t)
     {
         bool played;
@@ -151,7 +211,7 @@ public sealed partial class LibraryViewModel : ViewModelBase, IDisposable
     {
         _tracks.MarkPlayed(track.Path, DateTime.UtcNow);
         lock (_sessionPlayed) _sessionPlayed.Add(track.Path);
-        foreach (LibraryRow row in _folderRows.Where(r => r.Track.Path == track.Path))
+        foreach (LibraryRow row in RowsFor(track.Path))
             row.IsPlayed = true;
     }
 
@@ -162,10 +222,8 @@ public sealed partial class LibraryViewModel : ViewModelBase, IDisposable
         CancellationToken ct = scan.Token;
         try
         {
-            var rows = await Task.Run(() => _tracks.RecentlyPlayed(RecentlyPlayedLimit)
-                .Where(File.Exists)
-                .Select(path => { ct.ThrowIfCancellationRequested(); return RowFor(_readTrack(path)); })
-                .ToList(), ct);
+            var rows = await Task.Run(() => ReadRowsAsync(
+                _tracks.RecentlyPlayed(RecentlyPlayedLimit).Where(File.Exists).ToArray(), ct), ct);
             ct.ThrowIfCancellationRequested();
             SetFolderRows(rows);
             Report($"{rows.Count} recently played track(s)");
@@ -200,7 +258,8 @@ public sealed partial class LibraryViewModel : ViewModelBase, IDisposable
     private void SetFolderRows(IEnumerable<LibraryRow> rows)
     {
         _folderRows.Clear();
-        _folderRows.AddRange(rows);
+        _rowsByPath.Clear();
+        foreach (LibraryRow row in rows) AddFolderRow(row);
         ApplyFilter();
         QueueLibraryAnalysis();
     }
@@ -217,16 +276,8 @@ public sealed partial class LibraryViewModel : ViewModelBase, IDisposable
 
         try
         {
-            var found = await Task.Run(() =>
-            {
-                var list = new List<LibraryRow>();
-                foreach (string file in Directory.EnumerateFiles(path).Where(SupportedFormats.IsAudio))
-                {
-                    ct.ThrowIfCancellationRequested();
-                    list.Add(RowFor(_readTrack(file)));
-                }
-                return list;
-            }, ct);
+            var found = await Task.Run(() => ReadRowsAsync(
+                Directory.EnumerateFiles(path).Where(SupportedFormats.IsAudio).ToArray(), ct), ct);
 
             ct.ThrowIfCancellationRequested();
             SetFolderRows(found);
@@ -237,6 +288,25 @@ public sealed partial class LibraryViewModel : ViewModelBase, IDisposable
         catch (Exception) { /* superseded: the folder now shown is not this one */ }
         finally { EndScan(scan); }
     }
+
+    /// <summary>Tag readers at once: reads are mostly I/O waits, but phones have few cores and slow storage.</summary>
+    private static readonly int TagReaders = OperatingSystem.IsAndroid() ? 2 : 4;
+
+    /// <summary>Reads files' tags a few at a time, keeping the files' order.</summary>
+    private async Task<List<LibraryRow>> ReadRowsAsync(string[] files, CancellationToken ct)
+    {
+        var rows = new LibraryRow[files.Length];
+        await Parallel.ForEachAsync(Enumerable.Range(0, files.Length),
+            new ParallelOptions { MaxDegreeOfParallelism = TagReaders, CancellationToken = ct },
+            (i, _) => { rows[i] = RowFor(_readTrack(files[i])); return ValueTask.CompletedTask; });
+        return [.. rows];
+    }
+
+    /// <summary>Search hits are shown in batches of up to this many…</summary>
+    private const int SearchBatchSize = 50;
+
+    /// <summary>…or whatever has arrived after this long, so a slow scan still shows progress.</summary>
+    private static readonly TimeSpan SearchBatchWait = TimeSpan.FromMilliseconds(100);
 
     /// <summary>Recursively searches the current folder, replacing the original's blocking scan.</summary>
     [RelayCommand]
@@ -250,18 +320,39 @@ public sealed partial class LibraryViewModel : ViewModelBase, IDisposable
 
         Report($"Searching {CurrentFolder}…");
         SetFolderRows([]);
-        string needle = SearchText;
+        string needle = SearchText, folder = CurrentFolder;
+
+        // Tags are read and rows built on the pool; the UI thread only takes
+        // finished rows, a batch at a time.
+        var found = Channel.CreateUnbounded<LibraryRow>(new UnboundedChannelOptions { SingleWriter = true });
+        Task producer = Task.Run(async () =>
+        {
+            try
+            {
+                await foreach (string file in LibraryScanner.ScanAsync(folder, ct))
+                {
+                    if (!Path.GetFileName(file).Contains(needle, StringComparison.OrdinalIgnoreCase))
+                        continue;
+                    found.Writer.TryWrite(RowFor(_readTrack(file)));
+                }
+                found.Writer.TryComplete();
+            }
+            catch (Exception e) { found.Writer.TryComplete(e); }
+        }, CancellationToken.None);
 
         try
         {
-            await foreach (string file in LibraryScanner.ScanAsync(CurrentFolder, ct))
+            var batch = new List<LibraryRow>(SearchBatchSize);
+            while (await found.Reader.WaitToReadAsync(ct))
             {
-                if (!Path.GetFileName(file).Contains(needle, StringComparison.OrdinalIgnoreCase))
-                    continue;
-                LibraryRow row = RowFor(await Task.Run(() => _readTrack(file), ct));
+                await FillBatchAsync(found.Reader, batch, ct);
                 ct.ThrowIfCancellationRequested();
-                _folderRows.Add(row);
-                if (InBpmRange(row.Bpm)) BrowserRows.Add(row);
+                foreach (LibraryRow row in batch)
+                {
+                    AddFolderRow(row);
+                    if (InBpmRange(row.Bpm)) BrowserRows.Add(row);
+                }
+                batch.Clear();
                 Report($"{BrowserRows.Count} match(es)…");
             }
             QueueLibraryAnalysis();
@@ -270,7 +361,27 @@ public sealed partial class LibraryViewModel : ViewModelBase, IDisposable
         // Stopped by the user, not superseded by another folder.
         catch (OperationCanceledException) when (IsCurrent(scan)) { Report("Search cancelled"); }
         catch (OperationCanceledException) { }
-        finally { EndScan(scan); }
+        finally
+        {
+            // Let a tag read in flight finish before the token's source is disposed.
+            await producer;
+            EndScan(scan);
+        }
+    }
+
+    /// <summary>Takes rows until the batch is full, the scan ends, or the batch has waited long enough.</summary>
+    private static async Task FillBatchAsync(ChannelReader<LibraryRow> reader, List<LibraryRow> batch,
+                                             CancellationToken ct)
+    {
+        long started = Stopwatch.GetTimestamp();
+        while (true)
+        {
+            while (batch.Count < SearchBatchSize && reader.TryRead(out LibraryRow? row)) batch.Add(row);
+            TimeSpan left = SearchBatchWait - Stopwatch.GetElapsedTime(started);
+            if (batch.Count >= SearchBatchSize || left <= TimeSpan.Zero) return;
+            Task<bool> more = reader.WaitToReadAsync(ct).AsTask();
+            if (await Task.WhenAny(more, Task.Delay(left, ct)) != more || !await more) return;
+        }
     }
 
     [RelayCommand]
@@ -278,8 +389,13 @@ public sealed partial class LibraryViewModel : ViewModelBase, IDisposable
 
     private void ApplyFilter()
     {
+        _pendingFilter?.Cancel();
+        _pendingFilter = null;
+        List<LibraryRow> matching = _folderRows.Where(Matches).ToList();
+        // A spinner step or keystroke that changes nothing must not reset the list.
+        if (matching.SequenceEqual(BrowserRows, ReferenceEqualityComparer.Instance)) return;
         BrowserRows.Clear();
-        foreach (LibraryRow row in _folderRows.Where(Matches))
+        foreach (LibraryRow row in matching)
             BrowserRows.Add(row);
     }
 
@@ -333,14 +449,18 @@ public sealed partial class LibraryViewModel : ViewModelBase, IDisposable
     public void RefreshBpm(string path)
     {
         double? bpm = _tracks.Get(path)?.DisplayBpm;
-        foreach (LibraryRow row in _folderRows.Where(r => r.Track.Path == path))
+        foreach (LibraryRow row in RowsFor(path))
         {
             row.Bpm = bpm;
             // Add a newly matching row without rebuilding the list, so the
             // selection survives a background folder scan.
-            if (Matches(row) && !BrowserRows.Contains(row)) BrowserRows.Add(row);
+            if (Matches(row) && !_shown.Contains(row)) BrowserRows.Add(row);
         }
     }
 
-    public void Dispose() => _scan?.Cancel();
+    public void Dispose()
+    {
+        _scan?.Cancel();
+        _pendingFilter?.Cancel();
+    }
 }
