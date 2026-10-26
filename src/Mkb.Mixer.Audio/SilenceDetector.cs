@@ -18,7 +18,8 @@ public static class SilenceDetector
     public static (TimeSpan? FirstSound, TimeSpan? LastSound) Detect(AnalysisSignal signal)
     {
         int window = Math.Max(1, (int)(signal.SampleRate * Window.TotalSeconds));
-        int count = signal.Samples.Length / window;
+        ReadOnlySpan<float> samples = signal.Samples.Span;
+        int count = samples.Length / window;
         if (count == 0) return (null, null);
 
         var db = new double[count];
@@ -26,7 +27,7 @@ public static class SilenceDetector
         {
             double sum = 0;
             for (int i = w * window; i < (w + 1) * window; i++)
-                sum += (double)signal.Samples[i] * signal.Samples[i];
+                sum += (double)samples[i] * samples[i];
             double rms = Math.Sqrt(sum / window);
             db[w] = rms <= 0 ? double.NegativeInfinity : 20 * Math.Log10(rms);
         }

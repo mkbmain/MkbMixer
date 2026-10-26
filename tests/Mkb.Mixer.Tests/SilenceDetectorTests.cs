@@ -13,7 +13,7 @@ public class SilenceDetectorTests
 
         Assert.Equal(11025, signal.SampleRate);
         Assert.Equal(11025, signal.Samples.Length);
-        Assert.All(signal.Samples, s => Assert.Equal(0.5f, s, 4));
+        Assert.All(signal.Samples.ToArray(), s => Assert.Equal(0.5f, s, 4));
     }
 
     [Fact]

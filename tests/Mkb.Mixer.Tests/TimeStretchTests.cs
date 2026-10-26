@@ -51,6 +51,25 @@ public class TimeStretchTests
             Assert.True(Math.Abs(source[i] - output[i]) < 1e-6, $"sample {i}: {source[i]} vs {output[i]}");
     }
 
+    [Fact]
+    public void NormalSpeedIsBitExactAfterAStretch()
+    {
+        // Noise, so any arithmetic on the samples would show in the low bits.
+        var rnd = new Random(5);
+        float[] source = new float[Rate * 2 * 2];
+        for (int i = 0; i < source.Length; i++) source[i] = (float)(rnd.NextDouble() * 2 - 1);
+        var p = Stretch(source, 1.2f);
+        p.ReadBytes(new float[8192]);
+
+        p.Speed = 1f;
+        p.ReadBytes(new float[TimeStretchProvider.Hop * 2]);   // finish the stretched step
+        int at = p.Position;
+        var buf = new float[16384];
+        Assert.Equal(buf.Length, p.ReadBytes(buf));
+
+        Assert.Equal(source.AsSpan(at, buf.Length).ToArray(), buf);
+    }
+
     [Theory]
     [InlineData(1.25f)]
     [InlineData(0.8f)]

@@ -1,3 +1,5 @@
+using System.Numerics;
+
 namespace Mkb.Mixer.Audio;
 
 /// <summary>Estimates a track's tempo and where its first beat falls.</summary>
@@ -29,7 +31,7 @@ public static class TempoDetector
     {
         int hop = Math.Max(1, signal.SampleRate / FramesPerSecond);
         double frameRate = (double)signal.SampleRate / hop;
-        float[] onset = OnsetEnvelope(signal.Samples, hop);
+        float[] onset = OnsetEnvelope(signal.Samples.Span, hop);
 
         int maxLag = (int)Math.Ceiling(60 * frameRate / MinBpm * Harmonics) + 2;
         if (onset.Length < maxLag * 2) return (null, null);
@@ -65,7 +67,7 @@ public static class TempoDetector
     }
 
     /// <summary>Positive rises in log energy per 10 ms frame, with the mean removed.</summary>
-    private static float[] OnsetEnvelope(float[] samples, int hop)
+    private static float[] OnsetEnvelope(ReadOnlySpan<float> samples, int hop)
     {
         int window = hop * 2;
         int frames = (samples.Length - window) / hop;
@@ -93,16 +95,36 @@ public static class TempoDetector
     }
 
     /// <summary>Autocorrelation normalised by overlap length, so long lags are not penalised.</summary>
+    /// <remarks>
+    /// About 700 lags over the whole envelope, so this is most of the detector's
+    /// time. Widened to double once up front: the product of two floats is exact in
+    /// double, so only the summation order changes and the result matches the
+    /// scalar sum to far below anything the scoring can see.
+    /// </remarks>
     private static double[] Autocorrelate(float[] x, int maxLag)
     {
+        var wide = new double[x.Length];
+        for (int i = 0; i < x.Length; i++) wide[i] = x[i];
+
         var ac = new double[maxLag + 1];
         for (int lag = 0; lag <= maxLag; lag++)
         {
-            double sum = 0;
-            for (int i = 0; i + lag < x.Length; i++) sum += (double)x[i] * x[i + lag];
-            ac[lag] = sum / (x.Length - lag);
+            int n = x.Length - lag;
+            ac[lag] = Dot(wide.AsSpan(0, n), wide.AsSpan(lag, n)) / n;
         }
         return ac;
+    }
+
+    private static double Dot(ReadOnlySpan<double> a, ReadOnlySpan<double> b)
+    {
+        // System.Numerics.Tensors would do this but is a package, not in-box.
+        var acc = Vector<double>.Zero;
+        int i = 0;
+        for (; i <= a.Length - Vector<double>.Count; i += Vector<double>.Count)
+            acc += new Vector<double>(a[i..]) * new Vector<double>(b[i..]);
+        double sum = Vector.Sum(acc);
+        for (; i < a.Length; i++) sum += a[i] * b[i];
+        return sum;
     }
 
     private static double Score(double[] ac, double frameRate, double bpm)
