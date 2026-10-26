@@ -148,6 +148,10 @@ public sealed class WaveformView : Control
         return bitmap;
     }
 
+    // DrawImage reads its source rectangle in the bitmap's pixels, not in DIPs, so
+    // above 100% scaling a DIP rectangle would sample the wrong part of the bars.
+    private Rect BarPixels(Rect r) => r * _barsKey.Scale;
+
     private void DisposeBars()
     {
         _played?.Dispose();
@@ -192,12 +196,12 @@ public sealed class WaveformView : Control
         if (playedX > 0)
         {
             var left = new Rect(0, 0, playedX, bounds.Height);
-            context.DrawImage(_played!, left, left);
+            context.DrawImage(_played!, BarPixels(left), left);
         }
         if (playedX < bounds.Width)
         {
             var right = new Rect(playedX, 0, bounds.Width - playedX, bounds.Height);
-            context.DrawImage(_unplayed!, right, right);
+            context.DrawImage(_unplayed!, BarPixels(right), right);
         }
 
         context.DrawLine(Playhead, new Point(playedX, 0), new Point(playedX, bounds.Height));

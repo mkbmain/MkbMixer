@@ -31,9 +31,9 @@ public class WaveformViewTests
         return (window, view);
     }
 
-    private static uint[] Pixels(Bitmap frame, out int width)
+    private static uint[] Pixels(Bitmap frame, out int width, out bool rgba)
     {
-        _rgba = frame.Format == Avalonia.Platform.PixelFormat.Rgba8888;
+        rgba = frame.Format == Avalonia.Platform.PixelFormat.Rgba8888;
         width = frame.PixelSize.Width;
         var data = new uint[width * frame.PixelSize.Height];
         GCHandle h = GCHandle.Alloc(data, GCHandleType.Pinned);
@@ -42,12 +42,10 @@ public class WaveformViewTests
         return data;
     }
 
-    [ThreadStatic] private static bool _rgba;
-
-    private static Color At(uint[] px, int width, int x, int y)
+    private static Color At(uint[] px, int width, bool rgba, int x, int y)
     {
         uint p = px[y * width + x];   // little-endian: the first byte is the low one
-        return _rgba
+        return rgba
             ? Color.FromRgb((byte)p, (byte)(p >> 8), (byte)(p >> 16))
             : Color.FromRgb((byte)(p >> 16), (byte)(p >> 8), (byte)p);
     }
@@ -61,18 +59,52 @@ public class WaveformViewTests
             view.Progress = progress;
             Dispatcher.UIThread.RunJobs();
             using Bitmap frame = window.CaptureRenderedFrame() ?? throw new InvalidOperationException("no frame");
-            uint[] px = Pixels(frame, out int w);
+            uint[] px = Pixels(frame, out int w, out bool rgba);
             int mid = frame.PixelSize.Height / 2;
             int playhead = (int)(w * progress);
 
             for (int x = 2; x < w - 2; x += 7)
             {
                 if (Math.Abs(x - playhead) < 4) continue;
-                Assert.Equal(x < playhead ? Played : Unplayed, At(px, w, x, mid));
+                Assert.Equal(x < playhead ? Played : Unplayed, At(px, w, rgba, x, mid));
             }
             // Above the tallest bar stays background.
-            Assert.Equal(Colors.Black, At(px, w, 10, 1));
+            Assert.Equal(Colors.Black, At(px, w, rgba, 10, 1));
         }
         window.Close();
+    });
+
+    /// <summary>For each sampled column, how far down the bar starts, as a fraction of the height.</summary>
+    private static double[] BarTops(double scale)
+    {
+        var (window, view) = Build();
+        window.SetRenderScaling(scale);
+        view.Progress = 0.5;
+        Dispatcher.UIThread.RunJobs();
+        using Bitmap frame = window.CaptureRenderedFrame() ?? throw new InvalidOperationException("no frame");
+        uint[] px = Pixels(frame, out int w, out bool rgba);
+        int h = frame.PixelSize.Height;
+
+        var tops = new List<double>();
+        for (double fx = 0.05; fx < 1; fx += 0.1)
+        {
+            int x = (int)(w * fx);
+            int y = 0;
+            while (y < h && At(px, w, rgba, x, y) == Colors.Black) y++;
+            tops.Add((double)y / h);
+        }
+        window.Close();
+        return tops.ToArray();
+    }
+
+    [Fact]
+    public void DrawsTheSameBarsAtAnyDisplayScaling() => AvaloniaTest.Run(() =>
+    {
+        // Phones always render above 100%; the bars are cached in a bitmap at the
+        // display's pixel density, which must not change their shape.
+        double[] normal = BarTops(1), doubled = BarTops(2);
+        for (int i = 0; i < normal.Length; i++)
+            Assert.True(Math.Abs(normal[i] - doubled[i]) < 0.02,
+                $"column {i}: bar starts at {normal[i]:0.000} at 1x but {doubled[i]:0.000} at 2x");
     });
 }
