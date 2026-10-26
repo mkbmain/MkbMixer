@@ -26,6 +26,8 @@ public sealed partial class DeckViewModel : ViewModelBase
     private Track? _lastDequeued;
     private Track? _nextUp;
     private bool _dequeuing;
+    // Whole seconds last shown, so a 100 ms tick formats only when the text would change.
+    private long _elapsedSecond = long.MinValue, _remainingSecond = long.MinValue;
 
     /// <param name="random">Injectable so tests can make shuffle deterministic.</param>
     /// <param name="analysis">Shared with the other deck and the library; a private in-memory one when omitted.</param>
@@ -41,7 +43,7 @@ public sealed partial class DeckViewModel : ViewModelBase
         };
         Playlist.CollectionChanged += (_, _) =>
         {
-            if (!_dequeuing) PrefetchNext();
+            if (!_dequeuing && !_replacingPlaylist) PrefetchNext();
         };
         // SoundFlow raises this from its audio callback thread, so it has to be
         // marshalled before it touches anything bound to the UI.
@@ -452,6 +454,24 @@ public sealed partial class DeckViewModel : ViewModelBase
 
     private void PrefetchNext() => _analysis.Prefetch(PeekNext());
 
+    private bool _replacingPlaylist;
+
+    /// <summary>
+    /// Swaps the whole playlist, prefetching once at the end rather than per
+    /// track: each prefetch re-picks the next track, so a long restore was O(n²).
+    /// </summary>
+    public void ReplacePlaylist(IEnumerable<Track> tracks)
+    {
+        _replacingPlaylist = true;
+        try
+        {
+            Playlist.Clear();
+            foreach (Track t in tracks) Playlist.Add(t);
+        }
+        finally { _replacingPlaylist = false; }
+        PrefetchNext();
+    }
+
     partial void OnShuffleChanged(bool value) { _nextUp = null; PrefetchNext(); }
 
     private async void PlayNextFromPlaylist()
@@ -506,14 +526,20 @@ public sealed partial class DeckViewModel : ViewModelBase
         IsPlaying = _deck.State == PlaybackState.Playing;
         TimeSpan pos = _deck.Position, dur = _deck.Duration;
         if (dur != _cueFractionsDuration) UpdateCueFractions();
-        Elapsed = Format(pos);
-        Remaining = "-" + Format(dur - pos);
+        if (WholeSeconds(pos) is var e && e != _elapsedSecond) { _elapsedSecond = e; Elapsed = Format(pos); }
+        if (WholeSeconds(dur - pos) is var r && r != _remainingSecond) { _remainingSecond = r; Remaining = "-" + Format(dur - pos); }
         Progress = dur > TimeSpan.Zero ? pos.TotalSeconds / dur.TotalSeconds : 0;
         if (_deck.Track is { } t && NowPlaying != t.Display) NowPlaying = t.Display;
         if (IsPlaying && pos >= PlayedThreshold(dur)) ReportPlayed();
-        SyncCommand.NotifyCanExecuteChanged();
+        // CanSync is SyncBlocker == null, and the hint names the blocker, so an
+        // unchanged hint means an unchanged CanExecute.
         string hint = SyncHint;
-        if (hint != _syncHint) { _syncHint = hint; OnPropertyChanged(nameof(SyncHint)); }
+        if (hint != _syncHint)
+        {
+            _syncHint = hint;
+            OnPropertyChanged(nameof(SyncHint));
+            SyncCommand.NotifyCanExecuteChanged();
+        }
     }
 
     /// <summary>Raised once per loaded track, when it has played long enough to count, or ended.</summary>
@@ -533,6 +559,9 @@ public sealed partial class DeckViewModel : ViewModelBase
         _playedReported = true;
         TrackPlayed?.Invoke(this, t);
     }
+
+    /// <summary>What <see cref="Format"/> depends on; every negative shows as 0:00.</summary>
+    private static long WholeSeconds(TimeSpan t) => t < TimeSpan.Zero ? -1 : t.Ticks / TimeSpan.TicksPerSecond;
 
     private static string Format(TimeSpan t) =>
         t < TimeSpan.Zero ? "0:00" : $"{(int)t.TotalMinutes}:{t.Seconds:00}";
