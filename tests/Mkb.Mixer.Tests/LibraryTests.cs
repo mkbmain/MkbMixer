@@ -118,7 +118,7 @@ public class LibraryScannerTests : IDisposable
         Touch("a.mp3", "nested/b.flac", "nested/deep/c.wav", "notes.txt", "cover.jpg");
 
         var found = new List<string>();
-        await foreach (var f in LibraryScanner.ScanAsync(_dir))
+        await foreach (var f in LibraryScanner.ScanAsync(_dir, TestContext.Current.CancellationToken))
             found.Add(Path.GetFileName(f));
 
         Assert.Equal(3, found.Count);
@@ -151,7 +151,7 @@ public class LibraryScannerTests : IDisposable
     {
         Touch("ok.mp3");
         var found = new List<string>();
-        await foreach (var f in LibraryScanner.ScanAsync(_dir))
+        await foreach (var f in LibraryScanner.ScanAsync(_dir, TestContext.Current.CancellationToken))
             found.Add(f);
         Assert.Single(found);
     }
@@ -165,7 +165,7 @@ public class LibraryScannerTests : IDisposable
         Directory.CreateSymbolicLink(Path.Combine(_dir, "nested", "loop"), _dir);
 
         var found = new List<string>();
-        await foreach (var f in LibraryScanner.ScanAsync(_dir))
+        await foreach (var f in LibraryScanner.ScanAsync(_dir, TestContext.Current.CancellationToken))
             found.Add(Path.GetFileName(f));
 
         Assert.Equal(["a.mp3", "b.mp3"], found.Order());
@@ -175,7 +175,7 @@ public class LibraryScannerTests : IDisposable
     public async Task MissingRootYieldsNothing()
     {
         var found = new List<string>();
-        await foreach (var f in LibraryScanner.ScanAsync(Path.Combine(_dir, "absent")))
+        await foreach (var f in LibraryScanner.ScanAsync(Path.Combine(_dir, "absent"), TestContext.Current.CancellationToken))
             found.Add(f);
         Assert.Empty(found);
     }
