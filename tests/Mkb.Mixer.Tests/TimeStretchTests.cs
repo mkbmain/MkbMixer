@@ -153,17 +153,18 @@ public class TimeStretchDisposeTests
     [Fact]
     public async Task DisposeWaitsForAReadInProgressAndLaterReadsReturnNothing()
     {
+        var ct = TestContext.Current.CancellationToken;
         var source = new SlowSource(new float[44100 * 2]);
         var p = new TimeStretchProvider(source, 2);
-        var read = Task.Run(() => p.ReadBytes(new float[1024]));
-        Assert.True(source.Reading.Wait(TimeSpan.FromSeconds(5)));
+        var read = Task.Run(() => p.ReadBytes(new float[1024]), ct);
+        Assert.True(source.Reading.Wait(TimeSpan.FromSeconds(5), ct));
 
-        var dispose = Task.Run(p.Dispose);
-        Task first = await Task.WhenAny(dispose, Task.Delay(200));
+        var dispose = Task.Run(p.Dispose, ct);
+        Task first = await Task.WhenAny(dispose, Task.Delay(200, ct));
         Assert.False(first == dispose, "disposed the decoder under a running read");
 
         source.Release.Set();
-        await dispose.WaitAsync(TimeSpan.FromSeconds(5));
+        await dispose.WaitAsync(TimeSpan.FromSeconds(5), ct);
         await read;
         Assert.True(source.Disposed);
 
