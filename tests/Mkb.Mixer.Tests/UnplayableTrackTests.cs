@@ -291,7 +291,7 @@ public class ShutdownAndPersistenceTests : IDisposable
         var engine = new FakeAudioEngine();
         engine.Blocking.Add("/m/long.mp3");
         var queue = new AnalysisQueue(engine, TrackStore.InMemory(), post: a => a());
-        Task<TrackAnalysis> analysis = queue.AnalyseForDeckAsync(new Track("/m/long.mp3", "Long"));
+        Task<TrackAnalysis> analysis = queue.AnalyseForDeckAsync(new Track("/m/long.mp3", "Long"), TestContext.Current.CancellationToken);
 
         queue.Dispose();
 

@@ -7,9 +7,10 @@ namespace Mkb.Mixer.Tests;
 /// Runs UI work on a headless Avalonia session.
 /// </summary>
 /// <remarks>
-/// Avalonia ships an xunit adapter, but only for xunit v2, and this project is on
-/// v3. Driving <see cref="HeadlessUnitTestSession"/> directly is a few lines and
-/// avoids pinning the whole suite to the older framework.
+/// Written when Avalonia's xunit adapter supported only xunit v2. Its
+/// Avalonia.Headless.XUnit package now supports v3 too, but driving
+/// <see cref="HeadlessUnitTestSession"/> directly is a few lines and needs no
+/// extra package or attribute.
 /// </remarks>
 public static class AvaloniaTest
 {

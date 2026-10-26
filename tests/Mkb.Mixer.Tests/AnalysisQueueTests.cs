@@ -100,7 +100,7 @@ public class AnalysisQueueTests
         var announced = new List<string>();
         queue.Analysed += (_, path) => announced.Add(path);
 
-        await queue.AnalyseForDeckAsync(T("a"));
+        await queue.AnalyseForDeckAsync(T("a"), TestContext.Current.CancellationToken);
 
         Assert.Equal(128, store.Get("/m/a.mp3")!.Bpm);
         Assert.Equal(["/m/a.mp3"], announced);
@@ -114,7 +114,7 @@ public class AnalysisQueueTests
         using var queue = new AnalysisQueue(engine, store, post: a => a());
 
         queue.Prefetch(T("a"));
-        for (int i = 0; i < 100 && store.Get("/m/a.mp3") is null; i++) await Task.Delay(20);
+        for (int i = 0; i < 100 && store.Get("/m/a.mp3") is null; i++) await Task.Delay(20, TestContext.Current.CancellationToken);
 
         Assert.True(store.Get("/m/a.mp3")?.IsAnalysed);
     }
