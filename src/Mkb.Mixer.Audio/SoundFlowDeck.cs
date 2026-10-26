@@ -12,7 +12,7 @@ internal sealed class SoundFlowDeck : IDeck
     private readonly Lock _gate = new();
 
     private SoundPlayer? _player;
-    private StreamDataProvider? _provider;
+    private TimeStretchProvider? _provider;
     private Stream? _stream;
     private float _volume = 1f;
     private float _tempo = 1f;
@@ -39,8 +39,11 @@ internal sealed class SoundFlowDeck : IDeck
         _ => PlaybackState.Stopped
     };
 
+    /// <summary>Read from the stretcher: the player's own clock counts output, not track time.</summary>
     public TimeSpan Position =>
-        _player is null ? TimeSpan.Zero : TimeSpan.FromSeconds(Math.Max(0, _player.Time));
+        _provider is null ? TimeSpan.Zero
+            : TimeSpan.FromSeconds((double)_provider.Position
+                / SoundFlowAudioEngine.Format.Channels / SoundFlowAudioEngine.Format.SampleRate);
 
     public TimeSpan Duration =>
         _player is null ? TimeSpan.Zero : TimeSpan.FromSeconds(Math.Max(0, _player.Duration));
@@ -73,7 +76,7 @@ internal sealed class SoundFlowDeck : IDeck
         set
         {
             _tempo = Math.Clamp(value, 0.5f, 1.5f);
-            if (_player is not null) _player.PlaybackSpeed = _tempo;
+            if (_provider is not null) _provider.Speed = _tempo;
         }
     }
 
@@ -100,11 +103,13 @@ internal sealed class SoundFlowDeck : IDeck
             try
             {
                 _stream = File.OpenRead(track.Path);
-                _provider = new StreamDataProvider(_engine, SoundFlowAudioEngine.Format, _stream);
+                _provider = new TimeStretchProvider(
+                    new StreamDataProvider(_engine, SoundFlowAudioEngine.Format, _stream),
+                    SoundFlowAudioEngine.Format.Channels) { Speed = _tempo };
+                // The player stays at 1.0; the provider does the stretching, far cheaper.
                 _player = new SoundPlayer(_engine, SoundFlowAudioEngine.Format, _provider)
                 {
                     Name = $"Deck{Id}",
-                    PlaybackSpeed = _tempo,
                     Volume = _muted ? 0f : _volume
                 };
                 _player.PlaybackEnded += OnPlaybackEnded;
