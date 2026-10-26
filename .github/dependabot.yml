@@ -10,7 +10,7 @@ updates:
       avalonia:
         patterns: ["Avalonia*"]
       test:
-        patterns: ["xunit*", "Microsoft.NET.Test.Sdk", "coverlet.*"]
+        patterns: ["xunit*", "Microsoft.NET.Test.Sdk"]
 
   - package-ecosystem: github-actions
     directory: /
