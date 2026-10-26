@@ -22,7 +22,9 @@ public enum AnalysisPriority { NextUp = 0, Library = 1 }
 /// goes through one worker, highest priority first, so background analysis never
 /// competes with itself for the CPU. The worker checks the cache when it reaches a
 /// track rather than when it is queued, so opening a big folder does not stat
-/// every file on the UI thread.
+/// every file on the UI thread. The last few results are kept whole, waveform and
+/// all, so a prefetched track loads on its deck without a second decode, and a
+/// deck load joins a decode the worker already has running for the same file.
 /// </remarks>
 public sealed class AnalysisQueue : IDisposable
 {
@@ -30,11 +32,27 @@ public sealed class AnalysisQueue : IDisposable
     private readonly Action<Action> _post;
     private readonly bool _manual;
     private readonly Lock _gate = new();
-    private readonly List<(string Path, AnalysisPriority Priority)> _pending = [];
+    // Where each pending path sits. Seq is when it was first queued, so a promoted
+    // library track keeps its place among the next-up ones. A library queue entry
+    // whose path has since been promoted, taken or dropped no longer matches here
+    // and is skipped when reached, so nothing is ever searched for.
+    private readonly Dictionary<string, (AnalysisPriority Priority, long Seq)> _pending = [];
+    private readonly SortedSet<(long Seq, string Path)> _nextUp = [];
+    private readonly Queue<(long Seq, string Path)> _library = new();
+    private long _nextSeq;
+    private readonly Dictionary<string, Task<TrackAnalysis>> _workerDecodes = [];
+    private readonly Dictionary<string, Task<TrackAnalysis>> _deckDecodes = [];
+    private readonly LinkedList<RecentResult> _recent = [];
+    private readonly Dictionary<string, LinkedListNode<RecentResult>> _recentByPath = [];
     private readonly SemaphoreSlim _wake = new(0);
     private readonly CancellationTokenSource _stop = new();
     private readonly HashSet<Task> _deckAnalyses = [];
     private Task? _worker;
+
+    private sealed record RecentResult(string Path, FileStamp Stamp, TrackAnalysis Analysis);
+
+    /// <summary>How many whole results, waveform included, are kept for deck loads. About 8 KB each.</summary>
+    public const int RecentCapacity = 8;
 
     /// <summary>How long <see cref="Dispose"/> waits for a decode to notice it was cancelled.</summary>
     public static readonly TimeSpan DisposeTimeout = TimeSpan.FromSeconds(2);
@@ -63,19 +81,41 @@ public sealed class AnalysisQueue : IDisposable
     /// <summary>Analyses a track that has just been loaded on a deck, cached or not.</summary>
     public async Task<TrackAnalysis> AnalyseForDeckAsync(Track track, CancellationToken ct = default)
     {
+        string path = track.Path;
+        if (Recent(path) is { } recent)
+        {
+            // Normally in the store already; put it back if the store has forgotten it.
+            if (Store.Get(path)?.IsAnalysed != true) Record(path, recent);
+            return recent;
+        }
+
         // Tied to disposal too, so shutting down stops the decode before the engine goes.
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, _stop.Token);
-        Task<TrackAnalysis> analysis = _engine.AnalyseAsync(track.Path, linked.Token);
-        lock (_gate) _deckAnalyses.Add(analysis);
+        Task<TrackAnalysis> analysis;
+        Task<TrackAnalysis>? decode = null;
+        lock (_gate)
+        {
+            // Waited on rather than joined: dropping this load must not cancel the
+            // worker's decode, which records the result itself.
+            if (_workerDecodes.TryGetValue(path, out Task<TrackAnalysis>? running))
+                analysis = running.WaitAsync(linked.Token);
+            else
+                analysis = _deckDecodes[path] = decode = StartDecode(path, linked.Token);
+            _deckAnalyses.Add(analysis);
+        }
         try
         {
             TrackAnalysis result = await analysis;
-            if (!linked.IsCancellationRequested) Record(track.Path, result);
+            if (decode is not null && !linked.IsCancellationRequested) Record(path, result);
             return result;
         }
         finally
         {
-            lock (_gate) _deckAnalyses.Remove(analysis);
+            lock (_gate)
+            {
+                _deckAnalyses.Remove(analysis);
+                if (decode is not null && _deckDecodes.GetValueOrDefault(path) == decode) _deckDecodes.Remove(path);
+            }
         }
     }
 
@@ -83,11 +123,17 @@ public sealed class AnalysisQueue : IDisposable
     public void Prefetch(Track? track)
     {
         if (track is null) return;
+        string path = track.Path;
         lock (_gate)
         {
-            int i = _pending.FindIndex(p => p.Path == track.Path);
-            if (i >= 0) _pending[i] = (track.Path, AnalysisPriority.NextUp);
-            else _pending.Add((track.Path, AnalysisPriority.NextUp));
+            if (!_pending.TryGetValue(path, out var entry))
+                entry = (AnalysisPriority.Library, _nextSeq++);
+            if (entry.Priority == AnalysisPriority.Library)
+            {
+                // Its old library queue entry goes stale: the priority no longer matches.
+                _pending[path] = (AnalysisPriority.NextUp, entry.Seq);
+                _nextUp.Add((entry.Seq, path));
+            }
         }
         Wake();
     }
@@ -96,14 +142,20 @@ public sealed class AnalysisQueue : IDisposable
     public void QueueFolder(IEnumerable<Track> tracks)
     {
         List<string> paths = tracks.Select(t => t.Path).ToList();
+        bool queued = false;
         lock (_gate)
         {
-            _pending.RemoveAll(p => p.Priority == AnalysisPriority.Library);
+            foreach (var (seq, path) in _library)
+                if (IsLive(path, AnalysisPriority.Library, seq)) _pending.Remove(path);
+            _library.Clear();
             foreach (string path in paths)
-                if (!_pending.Exists(p => p.Path == path))
-                    _pending.Add((path, AnalysisPriority.Library));
+            {
+                if (!_pending.TryAdd(path, (AnalysisPriority.Library, _nextSeq))) continue;
+                _library.Enqueue((_nextSeq++, path));
+                queued = true;
+            }
         }
-        Wake();
+        if (queued) Wake();
     }
 
     /// <summary>Runs everything pending, in priority order, on the calling thread. For manual mode.</summary>
@@ -138,28 +190,66 @@ public sealed class AnalysisQueue : IDisposable
     {
         lock (_gate)
         {
-            if (_pending.Count == 0) { path = null; return false; }
-            int best = 0;
-            for (int i = 1; i < _pending.Count; i++)
-                if (_pending[i].Priority < _pending[best].Priority) best = i;
-            path = _pending[best].Path;
-            _pending.RemoveAt(best);
-            return true;
+            if (_nextUp.Count > 0)
+            {
+                var first = _nextUp.Min;
+                _nextUp.Remove(first);
+                _pending.Remove(first.Path);
+                path = first.Path;
+                return true;
+            }
+            while (_library.TryDequeue(out var entry))
+            {
+                if (!IsLive(entry.Path, AnalysisPriority.Library, entry.Seq)) continue;
+                _pending.Remove(entry.Path);
+                path = entry.Path;
+                return true;
+            }
+            path = null;
+            return false;
         }
     }
+
+    private bool IsLive(string path, AnalysisPriority priority, long seq) =>
+        _pending.TryGetValue(path, out var entry) && entry == (priority, seq);
 
     private async Task ProcessAsync(string path, CancellationToken ct)
     {
         if (Store.Get(path)?.IsAnalysed == true) return;
+        Task<TrackAnalysis>? deck;
+        lock (_gate) deck = _deckDecodes.GetValueOrDefault(path);
+        if (deck is not null)
+        {
+            // A deck is decoding it already and records it, unless that load is dropped.
+            try { await deck.WaitAsync(ct); }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+            catch (Exception) { /* dropped or failed: the store says which */ }
+            if (Store.Get(path)?.IsAnalysed == true) return;
+        }
+
+        Task<TrackAnalysis> decode;
+        lock (_gate) decode = _workerDecodes[path] = StartDecode(path, ct);
         try
         {
-            Record(path, await _engine.AnalyseAsync(path, ct));
+            Record(path, await decode);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         catch (Exception)
         {
             // One undecodable file must not stop the rest of the folder.
         }
+        finally
+        {
+            lock (_gate) _workerDecodes.Remove(path);
+        }
+    }
+
+    // Started under the lock so a second request always finds it. Engines hand back
+    // a task straight away; a synchronous throw becomes a faulted task like any other.
+    private Task<TrackAnalysis> StartDecode(string path, CancellationToken ct)
+    {
+        try { return _engine.AnalyseAsync(path, ct); }
+        catch (Exception e) { return Task.FromException<TrackAnalysis>(e); }
     }
 
     private void Record(string path, TrackAnalysis result)
@@ -168,7 +258,40 @@ public sealed class AnalysisQueue : IDisposable
         // Caching that would hide a BPM a later run could find.
         if (ReferenceEquals(result, TrackAnalysis.Empty)) return;
         Store.SetAnalysis(path, result);
+        Remember(path, result);
         _post(() => Analysed?.Invoke(this, path));
+    }
+
+    private void Remember(string path, TrackAnalysis result)
+    {
+        FileStamp stamp = FileStamp.Of(path);
+        // Nothing on disk to check it against later, so nothing to trust.
+        if (stamp == FileStamp.Missing) return;
+        lock (_gate)
+        {
+            if (_recentByPath.Remove(path, out var old)) _recent.Remove(old);
+            _recentByPath[path] = _recent.AddFirst(new RecentResult(path, stamp, result));
+            if (_recent.Count <= RecentCapacity) return;
+            _recentByPath.Remove(_recent.Last!.Value.Path);
+            _recent.RemoveLast();
+        }
+    }
+
+    /// <summary>A kept result for the file as it is now, or null.</summary>
+    private TrackAnalysis? Recent(string path)
+    {
+        LinkedListNode<RecentResult>? node;
+        lock (_gate)
+            if (!_recentByPath.TryGetValue(path, out node)) return null;
+        // Statted outside the lock: a slow card must not hold up the worker.
+        if (node.Value.Stamp != FileStamp.Of(path)) return null;
+        lock (_gate)
+        {
+            if (node.List is null) return null;
+            _recent.Remove(node);
+            _recent.AddFirst(node);
+        }
+        return node.Value.Analysis;
     }
 
     /// <summary>

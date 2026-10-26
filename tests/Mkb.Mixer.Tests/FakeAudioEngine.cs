@@ -90,8 +90,18 @@ public sealed class FakeAudioEngine : IAudioEngine
                 }
             }, CancellationToken.None);
         if (Throwing.Contains(path)) throw new InvalidOperationException($"cannot decode {path}");
-        return Task.FromResult(Analyses.TryGetValue(path, out TrackAnalysis? a) ? a : Analysis());
+        if (Gates.TryGetValue(path, out Task? gate)) return AfterGate();
+        return Task.FromResult(Analyses.TryGetValue(path, out TrackAnalysis? b) ? b : Analysis());
+
+        async Task<TrackAnalysis> AfterGate()
+        {
+            await gate.WaitAsync(ct);
+            return Analyses.TryGetValue(path, out TrackAnalysis? a) ? a : Analysis();
+        }
     }
+
+    /// <summary>Paths whose analysis finishes only once the given task does, so a test can hold a decode open.</summary>
+    public Dictionary<string, Task> Gates { get; } = [];
 
     public void Dispose() { }
 }

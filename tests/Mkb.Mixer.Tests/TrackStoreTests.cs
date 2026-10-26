@@ -108,6 +108,26 @@ public class TrackStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task SteadyChangesAreStillSavedWithinTheMaximumWait()
+    {
+        using var store = new TrackStore(StorePath, saveDelay: TimeSpan.FromMilliseconds(300))
+        {
+            MaxSaveWait = TimeSpan.FromMilliseconds(600)
+        };
+        string track = AudioFile();
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+
+        // Each change comes before the delay is up, so only the cap lets a save through.
+        while (!File.Exists(StorePath) && watch.Elapsed < TimeSpan.FromSeconds(5))
+        {
+            store.MarkPlayed(track, DateTime.UtcNow);
+            await Task.Delay(50, TestContext.Current.CancellationToken);
+        }
+
+        Assert.True(File.Exists(StorePath));
+    }
+
+    [Fact]
     public void RecentlyPlayedIsNewestFirstAndCapped()
     {
         using var store = TrackStore.InMemory();

@@ -29,7 +29,14 @@ public sealed class TrackStore : IDisposable
     private readonly Lock _writeGate = new();
     private readonly Timer? _saveTimer;
     private bool _dirty;
+    private long _dirtySinceMs;
     private bool _writesDisabled;
+
+    /// <summary>
+    /// The longest a change waits for a save. Steady background analysis keeps
+    /// pushing the delay back, and without this would only be saved at exit.
+    /// </summary>
+    internal TimeSpan MaxSaveWait { get; init; } = TimeSpan.FromSeconds(30);
 
     /// <param name="path">Where to save, or null to keep everything in memory.</param>
     public TrackStore(string? path, TimeSpan? saveDelay = null)
@@ -65,13 +72,23 @@ public sealed class TrackStore : IDisposable
 
     public void Update(string path, Func<TrackInfo, TrackInfo> change)
     {
+        TimeSpan due;
         lock (_gate)
         {
             TrackInfo current = _tracks.TryGetValue(path, out TrackInfo? existing) ? existing : new TrackInfo();
             _tracks[path] = change(current);
-            _dirty = true;
+            MarkDirty();
+            TimeSpan left = MaxSaveWait - TimeSpan.FromMilliseconds(Environment.TickCount64 - _dirtySinceMs);
+            due = left < _saveDelay ? (left > TimeSpan.Zero ? left : TimeSpan.Zero) : _saveDelay;
         }
-        _saveTimer?.Change(_saveDelay, Timeout.InfiniteTimeSpan);
+        _saveTimer?.Change(due, Timeout.InfiniteTimeSpan);
+    }
+
+    // Under _gate. Remembers when the oldest unsaved change was made.
+    private void MarkDirty()
+    {
+        if (!_dirty) _dirtySinceMs = Environment.TickCount64;
+        _dirty = true;
     }
 
     public void SetAnalysis(string path, TrackAnalysis analysis)
@@ -124,7 +141,7 @@ public sealed class TrackStore : IDisposable
         lock (_gate)
         {
             int forgotten = missing.Count(_tracks.Remove);
-            if (forgotten > 0) _dirty = true;
+            if (forgotten > 0) MarkDirty();
             return forgotten;
         }
 
@@ -138,27 +155,31 @@ public sealed class TrackStore : IDisposable
         if (_path is null || _writesDisabled) return;
         lock (_writeGate)
         {
-            string json;
+            // Only the copy is made under the lock: serialising thousands of tracks
+            // there would stall the UI's reads. The entries are immutable, so a
+            // shallow copy is a true snapshot.
+            Dictionary<string, TrackInfo> snapshot;
             lock (_gate)
             {
                 if (!_dirty) return;
                 _dirty = false;
-                try { json = JsonSerializer.Serialize(_tracks, Options); }
-                catch (Exception) { _dirty = true; return; }
+                snapshot = new Dictionary<string, TrackInfo>(_tracks, PathComparer);
             }
+            string temp = _path + ".tmp";
             try
             {
                 string? dir = Path.GetDirectoryName(_path);
                 if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
-                string temp = _path + ".tmp";
-                File.WriteAllText(temp, json);
+                using (var stream = new FileStream(temp, FileMode.Create, FileAccess.Write, FileShare.None))
+                    JsonSerializer.Serialize(stream, snapshot, Options);
                 File.Move(temp, _path, overwrite: true);
             }
             catch (Exception)
             {
                 // Never throw: this runs on a timer thread, where an escape ends the process.
                 // Losing track memory is not worth crashing over; try again next change.
-                lock (_gate) _dirty = true;
+                try { File.Delete(temp); } catch (Exception) { /* left for the next write to replace */ }
+                lock (_gate) MarkDirty();
             }
         }
     }
@@ -175,7 +196,9 @@ public sealed class TrackStore : IDisposable
         if (path is null || !File.Exists(path)) return empty;
         try
         {
-            var loaded = JsonSerializer.Deserialize<Dictionary<string, TrackInfo>>(File.ReadAllText(path), Options);
+            Dictionary<string, TrackInfo>? loaded;
+            using (FileStream stream = File.OpenRead(path))
+                loaded = JsonSerializer.Deserialize<Dictionary<string, TrackInfo>>(stream, Options);
             if (loaded is null) return empty;
             foreach (var (key, info) in loaded)
             {
