@@ -44,6 +44,24 @@ public class M3uPlaylistTests : IDisposable
     }
 
     [Fact]
+    public void LineBreaksInTagsDoNotAddTracks()
+    {
+        string path = Path.Combine(_dir, "set.m3u");
+        M3uPlaylist.Save(path,
+        [
+            new Track("/music/a.mp3", "Title\n/etc/passwd", "Art\r\nist"),
+            new Track("/music/b\nc.mp3", "Unwritable path"),
+        ]);
+
+        var loaded = M3uPlaylist.Load(path).ToList();
+
+        Track only = Assert.Single(loaded);
+        Assert.Equal("/music/a.mp3", only.Path);
+        Assert.Equal("Art ist", only.Artist);
+        Assert.Equal("Title /etc/passwd", only.Title);
+    }
+
+    [Fact]
     public void WritesExtendedM3uHeader()
     {
         string path = Path.Combine(_dir, "set.m3u");

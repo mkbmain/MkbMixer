@@ -108,6 +108,7 @@ internal sealed class TimeStretchProvider : ISoundDataProvider
     {
         lock (_gate)
         {
+            if (IsDisposed) return 0;
             int written = 0;
             int wanted = buffer.Length - buffer.Length % _channels;
             while (written < wanted)
@@ -132,6 +133,7 @@ internal sealed class TimeStretchProvider : ISoundDataProvider
     {
         lock (_gate)
         {
+            if (IsDisposed) return;
             _source.Seek(offset);
             int frame = offset / _channels;
             _inStart = _outSourceFrame = frame;
@@ -277,10 +279,19 @@ internal sealed class TimeStretchProvider : ISoundDataProvider
         _inFrames = keep;
     }
 
+    /// <summary>
+    /// Waits for a read in progress. SoundFlow's mixer works from a snapshot of its
+    /// players, so removing one does not stop a callback already running it. SoundFlow's
+    /// decoder (1.4.1) already guards its own reads against its disposal; this lock keeps
+    /// the stretcher from relying on that, and from touching its source once disposed.
+    /// </summary>
     public void Dispose()
     {
-        if (IsDisposed) return;
-        IsDisposed = true;
-        _source.Dispose();
+        lock (_gate)
+        {
+            if (IsDisposed) return;
+            IsDisposed = true;
+            _source.Dispose();
+        }
     }
 }

@@ -28,14 +28,23 @@ public static class M3uPlaylist
             writer.WriteLine(Header);
             foreach (Track t in tracks)
             {
+                // M3U has no escaping. A path with a line break cannot be written at all.
+                if (t.Path.AsSpan().IndexOfAny('\r', '\n') >= 0) continue;
                 int seconds = t.Duration > TimeSpan.Zero ? (int)t.Duration.TotalSeconds : -1;
                 string label = t.Artist is { Length: > 0 } ? $"{t.Artist} - {t.Title}" : t.Title;
-                writer.WriteLine($"{InfoPrefix}{seconds},{label}");
+                writer.WriteLine($"{InfoPrefix}{seconds},{OneLine(label)}");
                 writer.WriteLine(t.Path);
             }
         }
         File.Move(temp, path, overwrite: true);
     }
+
+    /// <summary>
+    /// Tags come from the files, and a line break in one would split the info line,
+    /// leaving its second half to be read back as a track path.
+    /// </summary>
+    private static string OneLine(string text) =>
+        text.ReplaceLineEndings(" ");
 
     public static IEnumerable<Track> Load(string path)
     {
