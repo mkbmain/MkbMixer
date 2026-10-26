@@ -3,8 +3,8 @@
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <IsPackable>false</IsPackable>
-    <!-- xunit v3 test projects are executables. Microsoft.NET.Test.Sdk sets this
-         too, but the project should not depend on that. -->
+    <!-- xunit v3 test projects are executables, run by dotnet test through
+         Microsoft.Testing.Platform (opted into in global.json). -->
     <OutputType>Exe</OutputType>
   </PropertyGroup>
 
@@ -13,12 +13,7 @@
     <PackageReference Include="Avalonia.Headless" />
     <PackageReference Include="Avalonia.Skia" />
     <PackageReference Include="Avalonia.Themes.Fluent" />
-    <PackageReference Include="Microsoft.NET.Test.Sdk" />
-    <!-- The VSTest-only build of xunit v3: the .NET 10 SDK will not run the
-         default Microsoft.Testing.Platform build through VSTest, and CI's
-         dotnet test filter and logger options are VSTest's. -->
-    <PackageReference Include="xunit.v3.mtp-off" />
-    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="xunit.v3" />
   </ItemGroup>
 
   <ItemGroup>

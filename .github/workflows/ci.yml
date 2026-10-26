@@ -22,11 +22,12 @@ jobs:
         run: dotnet build tests/Mkb.Mixer.Tests/Mkb.Mixer.Tests.csproj -c Release
 
       # Runners have no sound card, so the tests that open a real output device
-      # are tagged Category=Audio and left to local runs.
+      # are tagged Category=Audio and left to local runs. dotnet test runs through
+      # Microsoft.Testing.Platform (see global.json), hence xunit's own filter.
       - name: Test
         run: >
-          dotnet test tests/Mkb.Mixer.Tests/Mkb.Mixer.Tests.csproj -c Release --no-build
-          --filter "Category!=Audio" --logger "console;verbosity=normal"
+          dotnet test --project tests/Mkb.Mixer.Tests/Mkb.Mixer.Tests.csproj -c Release --no-build
+          --filter-not-trait "Category=Audio" --output Detailed
 
   apk:
     needs: test
