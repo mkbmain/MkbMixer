@@ -83,6 +83,63 @@ public class TrackAnalyserTests
         Assert.Equal(reference.Waveform.Peaks, a.Waveform.Peaks);
     }
 
+    /// <summary>Long enough that the peaks are merged twice, with a level that changes every few ms.</summary>
+    private static float[] LongTrack()
+    {
+        var rnd = new Random(7);
+        var s = new float[44100 * 60 * 2];
+        float level = 0;
+        for (int f = 0; f < s.Length / 2; f++)
+        {
+            if (f % 300 == 0) level = (float)rnd.NextDouble();
+            s[2 * f] = level * (float)Math.Sin(f * 0.05);
+            s[2 * f + 1] = -s[2 * f] * 0.5f;
+        }
+        return s;
+    }
+
+    [Fact]
+    public void ALongTracksWaveformMovesOnlyAtBucketEdges()
+    {
+        float[] samples = LongTrack();
+        int frames = samples.Length / 2;
+        int buckets = Waveform.DefaultBuckets;
+
+        Waveform streamed = FeedInChunks(samples, 16384).Waveform;
+
+        // Each bucket must lie between the peak of its reference range shrunk and
+        // grown by a few merged peaks' worth of frames (4 blocks of 4 frames each).
+        const int slack = 2 * 4 * 4 + 4;
+        for (int b = 0; b < buckets; b++)
+        {
+            int start = (int)((long)b * frames / buckets), end = (int)((long)(b + 1) * frames / buckets);
+            float inner = Peak(start + slack, end - slack), outer = Peak(start - slack, end + slack);
+            Assert.InRange(streamed.Peaks[b], inner, outer);
+        }
+
+        float Peak(int from, int to)
+        {
+            float p = 0;
+            for (int i = Math.Max(0, from) * 2; i < Math.Min(frames, to) * 2; i++) p = Math.Max(p, Math.Abs(samples[i]));
+            return p;
+        }
+    }
+
+    [Fact]
+    public void ALongTrackDoesNotDependOnChunkingOrTheEstimate()
+    {
+        float[] samples = LongTrack();
+        TrackAnalysis reference = FeedInChunks(samples, 16384);
+
+        var analyser = new TrackAnalyser(channels: 2, sampleRate: 44100, expectedSamples: samples.Length);
+        for (int i = 0; i < samples.Length; i += 999)
+            analyser.Add(samples.AsSpan(i, Math.Min(999, samples.Length - i)));
+        TrackAnalysis a = analyser.Finish();
+
+        Assert.Equal(reference.Waveform.Peaks, a.Waveform.Peaks);
+        Assert.Equal(reference.LastSound, a.LastSound);
+    }
+
     [Fact]
     public void NothingFedGivesAnEmptyResult()
     {

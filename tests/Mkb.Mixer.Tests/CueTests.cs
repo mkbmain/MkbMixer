@@ -193,6 +193,29 @@ public class CueRingBufferTests
     }
 
     [Fact]
+    public void StaysInOrderOverManyWrapsOfEveryOffset()
+    {
+        // Odd capacity in frames and uneven chunk sizes, so the copies split at
+        // every possible point of the wrap.
+        var ring = new CueRingBuffer(capacity: 14, highWater: 1000, channels: 2);
+        var rnd = new Random(3);
+        int next = 0, expected = 0;
+        for (int round = 0; round < 500; round++)
+        {
+            next += ring.Write(Range(next, rnd.Next(0, 9) * 2));
+            int available = ring.Count;
+            var dest = new float[rnd.Next(0, 9) * 2];
+            ring.Read(dest);
+
+            int got = Math.Min(available, dest.Length);
+            Assert.Equal(Range(expected, got), dest[..got]);
+            Assert.All(dest[got..], s => Assert.Equal(0f, s));
+            expected += got;
+        }
+        Assert.True(expected > 1000);
+    }
+
+    [Fact]
     public void KeepsFramesWhole()
     {
         // A dropped half-frame would swap left and right for the rest of the set.

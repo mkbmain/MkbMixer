@@ -40,8 +40,11 @@ public sealed class CueRingBuffer
         int free = _data.Length - (int)(w - Volatile.Read(ref _read));
         int n = Math.Min(free, samples.Length);
         n -= n % _channels;
-        for (int i = 0; i < n; i++)
-            _data[(int)((w + i) % _data.Length)] = samples[i];
+        // One modulo per call, then at most two block copies either side of the wrap.
+        int start = (int)(w % _data.Length);
+        int first = Math.Min(n, _data.Length - start);
+        samples[..first].CopyTo(_data.AsSpan(start));
+        samples[first..n].CopyTo(_data);
         Volatile.Write(ref _written, w + n);
         return n;
     }
@@ -56,8 +59,10 @@ public sealed class CueRingBuffer
 
         int n = (int)Math.Min(w - r, destination.Length);
         n -= n % _channels;
-        for (int i = 0; i < n; i++)
-            destination[i] = _data[(int)((r + i) % _data.Length)];
+        int start = (int)(r % _data.Length);
+        int first = Math.Min(n, _data.Length - start);
+        _data.AsSpan(start, first).CopyTo(destination);
+        _data.AsSpan(0, n - first).CopyTo(destination[first..]);
         destination[n..].Clear();
         Volatile.Write(ref _read, r + n);
     }

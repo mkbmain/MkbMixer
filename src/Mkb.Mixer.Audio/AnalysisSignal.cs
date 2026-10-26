@@ -5,7 +5,11 @@ namespace Mkb.Mixer.Audio;
 /// need nothing above a few kHz, and working at a quarter of the rate keeps
 /// detection to a few tens of milliseconds on top of the decode.
 /// </summary>
-public readonly record struct AnalysisSignal(float[] Samples, int SampleRate)
+/// <param name="Samples">
+/// Memory rather than an array so <see cref="TrackAnalyser"/> can hand over the
+/// filled part of its buffer without copying a track's worth of samples.
+/// </param>
+public readonly record struct AnalysisSignal(ReadOnlyMemory<float> Samples, int SampleRate)
 {
     public const int TargetRate = 11025;
 

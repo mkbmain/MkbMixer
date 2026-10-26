@@ -43,10 +43,12 @@ internal sealed class TimeStretchProvider : ISoundDataProvider
     private readonly float[] _fadeIn = new float[Hop];
 
     // Decoded source audio, interleaved, with a mono mix alongside for the search.
+    // The mix is only brought up to date before a search, so at 1.0 it costs nothing.
     private readonly float[] _in;
     private readonly float[] _mono = new float[CapacityFrames];
     private int _inStart;          // source frame held at _in[0]
     private int _inFrames;
+    private int _monoFrames;       // held frames, from _inStart, that _mono covers
     private int _endFrame = int.MaxValue;   // source frame count, once the decoder runs dry
 
     // The step being handed out.
@@ -137,7 +139,7 @@ internal sealed class TimeStretchProvider : ISoundDataProvider
             _source.Seek(offset);
             int frame = offset / _channels;
             _inStart = _outSourceFrame = frame;
-            _inFrames = _outFrames = _outRead = 0;
+            _inFrames = _monoFrames = _outFrames = _outRead = 0;
             _endFrame = int.MaxValue;
             _nominal = frame;
             _prev = -1;
@@ -162,19 +164,21 @@ internal sealed class TimeStretchProvider : ISoundDataProvider
             int natural = _prev + Hop;
             if (Math.Abs(speed - 1f) < 0.0005f)
             {
-                // Straight on: the crossfade below is then of a segment with itself.
+                // Straight on: a crossfade would be of a segment with itself, so copy.
                 best = natural;
                 _nominal = natural;
                 if (natural >= _endFrame || !Fill(natural + Hop)) return false;
+                _in.AsSpan((natural - _inStart) * _channels, Hop * _channels).CopyTo(_out);
             }
             else
             {
                 int nominal = (int)Math.Round(_nominal);
                 if (Math.Min(nominal, natural) >= _endFrame) return false;
                 if (!Fill(Math.Max(nominal + Radius, natural) + Hop)) return false;
+                MixMono();
                 best = Search(natural, Math.Max(nominal - Radius, _inStart), nominal + Radius);
+                Crossfade(natural, best);
             }
-            Crossfade(natural, best);
         }
         _outSourceFrame = best;
         _outFrames = Hop;
@@ -257,14 +261,20 @@ internal sealed class TimeStretchProvider : ISoundDataProvider
                 got = want;
             }
             _inFrames += got / _channels;
-            for (int f = start; f < _inFrames; f++)
-            {
-                float m = 0;
-                for (int ch = 0; ch < _channels; ch++) m += _in[f * _channels + ch];
-                _mono[f] = m;
-            }
         }
         return true;
+    }
+
+    /// <summary>Brings the mono mix up to every held frame, for <see cref="Search"/>.</summary>
+    private void MixMono()
+    {
+        for (int f = _monoFrames; f < _inFrames; f++)
+        {
+            float m = 0;
+            for (int ch = 0; ch < _channels; ch++) m += _in[f * _channels + ch];
+            _mono[f] = m;
+        }
+        _monoFrames = _inFrames;
     }
 
     /// <summary>Drops held frames before <paramref name="keepFrom"/>, a hop at a time.</summary>
@@ -274,7 +284,10 @@ internal sealed class TimeStretchProvider : ISoundDataProvider
         if (drop < Hop) return;
         int keep = _inFrames - drop;
         _in.AsSpan(drop * _channels, keep * _channels).CopyTo(_in);
-        _mono.AsSpan(drop, keep).CopyTo(_mono);
+        // Only the part already mixed moves; the rest is mixed when next needed.
+        int mixed = Math.Max(0, _monoFrames - drop);
+        _mono.AsSpan(drop, mixed).CopyTo(_mono);
+        _monoFrames = mixed;
         _inStart += drop;
         _inFrames = keep;
     }
