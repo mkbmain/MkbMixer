@@ -117,3 +117,56 @@ public class TimeStretchTests
                 $"jump at frame {f}: {output[2 * (f - 1)]} -> {output[2 * f]}");
     }
 }
+
+public class TimeStretchDisposeTests
+{
+    /// <summary>A source whose reads block until released, and that records misuse after disposal.</summary>
+    private sealed class SlowSource(float[] data) : SoundFlow.Interfaces.ISoundDataProvider
+    {
+        private readonly RawDataProvider _inner = new(data);
+        public readonly ManualResetEventSlim Reading = new();
+        public readonly ManualResetEventSlim Release = new();
+        public volatile bool Disposed;
+        public volatile bool ReadAfterDispose;
+
+        public int ReadBytes(Span<float> buffer)
+        {
+            if (Disposed) ReadAfterDispose = true;
+            Reading.Set();
+            Release.Wait();
+            return _inner.ReadBytes(buffer);
+        }
+
+        public void Dispose() => Disposed = true;
+        public int Position => _inner.Position;
+        public int Length => _inner.Length;
+        public bool CanSeek => true;
+        public SoundFlow.Enums.SampleFormat SampleFormat => _inner.SampleFormat;
+        public int SampleRate => 44100;
+        public bool IsDisposed => Disposed;
+        public SoundFlow.Metadata.Models.SoundFormatInfo? FormatInfo => null;
+        public event EventHandler<EventArgs>? EndOfStreamReached { add { } remove { } }
+        public event EventHandler<SoundFlow.Interfaces.PositionChangedEventArgs>? PositionChanged { add { } remove { } }
+        public void Seek(int offset) => _inner.Seek(offset);
+    }
+
+    [Fact]
+    public void DisposeWaitsForAReadInProgressAndLaterReadsReturnNothing()
+    {
+        var source = new SlowSource(new float[44100 * 2]);
+        var p = new TimeStretchProvider(source, 2);
+        var read = Task.Run(() => p.ReadBytes(new float[1024]));
+        Assert.True(source.Reading.Wait(TimeSpan.FromSeconds(5)));
+
+        var dispose = Task.Run(p.Dispose);
+        Assert.False(dispose.Wait(TimeSpan.FromMilliseconds(200)), "disposed the decoder under a running read");
+
+        source.Release.Set();
+        Assert.True(dispose.Wait(TimeSpan.FromSeconds(5)));
+        read.Wait();
+        Assert.True(source.Disposed);
+
+        Assert.Equal(0, p.ReadBytes(new float[1024]));
+        Assert.False(source.ReadAfterDispose);
+    }
+}
