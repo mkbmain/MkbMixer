@@ -333,8 +333,10 @@ public class ShutdownAndPersistenceTests : IDisposable
         try
         {
             _ = queue.AnalyseForDeckAsync(new Track("/m/long.mp3", "Long"), TestContext.Current.CancellationToken);
-            // Not asserted: a decode that never starts should show as the slow Dispose below.
-            SpinWait.SpinUntil(() => engine.AnalysedPaths.Count > 0, TimeSpan.FromSeconds(1));
+            // The stat before the decode runs on the pool. Disposing before the decode starts
+            // would cancel one that never began, which proves nothing about the wait.
+            Assert.True(SpinWait.SpinUntil(() => engine.AnalysedPaths.Count > 0, TimeSpan.FromSeconds(5)),
+                "the decode never started");
 
             var clock = System.Diagnostics.Stopwatch.StartNew();
             queue.Dispose();

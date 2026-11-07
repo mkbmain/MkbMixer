@@ -25,13 +25,23 @@ public sealed partial class DeckViewModel : ViewModelBase
     private Track? _currentTrack;
     private Track? _lastDequeued;
     private Track? _nextUp;
+    private Track? _dequeuedForLoad;
+    private Track? _loadTarget;
     private bool _dequeuing;
     // Load paths wait for the file to open, so requests can overlap. UI thread only.
     private int _loadRequest;
     private int _playRequest;
     private Task<LoadOutcome> _loading = Task.FromResult(LoadOutcome.Loaded);
 
-    private enum LoadOutcome { Loaded, Failed, Superseded }
+    // QueueChanged: the track was prepared as the queue's next, and by then it no longer was.
+    private enum LoadOutcome { Loaded, Failed, Superseded, QueueChanged }
+
+    private enum AdvanceOutcome { Playing, Overtaken, Finished }
+
+    // Each round of these retries depends on something outside this deck changing during a file
+    // open, so nothing here guarantees they ever end. The limits do, and the user is told when one is hit.
+    private const int MaxQueueChangesFollowed = 8;
+    private const int MaxOvertakenAdvances = 8;
 
     /// <param name="random">Injectable so tests can make shuffle deterministic.</param>
     /// <param name="analysis">Shared with the other deck and the library; a private in-memory one when omitted.</param>
@@ -297,10 +307,10 @@ public sealed partial class DeckViewModel : ViewModelBase
     /// Loads a track for immediate playback: analysis carries on in the background
     /// so audio need not wait for the whole-track decode.
     /// </summary>
-    private async Task<LoadOutcome> LoadForPlaybackAsync(Track track)
+    private async Task<LoadOutcome> LoadForPlaybackAsync(Track track, Func<bool>? commit = null)
     {
-        LoadOutcome outcome = await (_loading = PrepareThenLoadAsync(track));
-        if (outcome != LoadOutcome.Superseded) ObserveInBackground(OnTrackChangedAsync());
+        LoadOutcome outcome = await (_loading = PrepareThenLoadAsync(track, commit));
+        if (outcome is LoadOutcome.Loaded or LoadOutcome.Failed) ObserveInBackground(OnTrackChangedAsync());
         return outcome;
     }
 
@@ -308,13 +318,51 @@ public sealed partial class DeckViewModel : ViewModelBase
     /// Opens the file off the UI thread, then loads it, unless by then the deck has
     /// been asked for something newer: another load here, or the auto-cue's own Load.
     /// </summary>
-    private async Task<LoadOutcome> PrepareThenLoadAsync(Track track)
+    /// <param name="commit">
+    /// Runs on the UI thread with nothing awaited between it and the load, so what it
+    /// does cannot be overtaken. Returning false abandons the load.
+    /// </param>
+    private async Task<LoadOutcome> PrepareThenLoadAsync(Track track, Func<bool>? commit = null)
     {
         int request = ++_loadRequest;
         Track? held = _deck.Track;
-        await PrepareQuietlyAsync(track);
-        if (request != _loadRequest || !ReferenceEquals(_deck.Track, held)) return LoadOutcome.Superseded;
-        return TryLoad(track) ? LoadOutcome.Loaded : LoadOutcome.Failed;
+        _loadTarget = track;
+        // Whoever dequeued has loaded by now: nothing awaits between a dequeue and its Load, so
+        // one left set is already done with. A commit below sets it again for this load.
+        _dequeuedForLoad = null;
+        // Before preparing, so the load this one replaces gives up its slot rather than a wanted track.
+        RetainWanted();
+        try
+        {
+            await PrepareQuietlyAsync(track);
+            if (request != _loadRequest || !ReferenceEquals(_deck.Track, held)) return LoadOutcome.Superseded;
+            if (commit is not null && !commit()) return LoadOutcome.QueueChanged;
+            return TryLoad(track) ? LoadOutcome.Loaded : LoadOutcome.Failed;
+        }
+        finally
+        {
+            // An older load settling must leave the newer one's target alone.
+            if (request == _loadRequest)
+            {
+                _loadTarget = null;
+                _dequeuedForLoad = null;
+                RetainWanted();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Tells the deck which files it still has a use for: what is next, and what is about to
+    /// load. Reads <see cref="_nextUp"/> rather than peeking, as a peek here could re-pick
+    /// shuffle's choice without preparing it. A dequeued track wins over a running load: there
+    /// are only two slots, and the auto-cue's Load that follows the dequeue overtakes that load.
+    /// </summary>
+    private void RetainWanted()
+    {
+        var wanted = new List<string>(2);
+        if (_nextUp is not null) wanted.Add(_nextUp.Path);
+        if ((_dequeuedForLoad ?? _loadTarget) is { } loading) wanted.Add(loading.Path);
+        _deck.RetainPrepared(wanted);
     }
 
     private async Task PrepareQuietlyAsync(Track track)
@@ -507,6 +555,7 @@ public sealed partial class DeckViewModel : ViewModelBase
         finally { _dequeuing = false; }
 
         _lastDequeued = next;
+        _dequeuedForLoad = next;
         _nextUp = null;
         PrefetchNext();
         return next;
@@ -516,6 +565,7 @@ public sealed partial class DeckViewModel : ViewModelBase
     {
         Track? next = PeekNext();
         _analysis.Prefetch(next);
+        RetainWanted();
         // So the auto-cue's synchronous Load, on the UI timer, finds the file already open.
         if (next is not null) _ = PrepareQuietlyAsync(next);
     }
@@ -524,35 +574,90 @@ public sealed partial class DeckViewModel : ViewModelBase
 
     private async void PlayNextFromPlaylist()
     {
-        // The user's load takes the deck and any Play waiting on it goes ahead with it; the
-        // queue keeps its next track, and the end has already been reported as played.
-        if (!_loading.IsCompleted) return;
-
         // Runs from the track-ended event: anything escaping an async void here
         // would end the process mid-set.
-        try { await PlayNextAsync(); }
+        try
+        {
+            int play = _playRequest;
+            if (!_loading.IsCompleted && !await LoadsLeftDeckEmptyAsync(play)) return;
+
+            for (int advances = 0; advances < MaxOvertakenAdvances; advances++)
+            {
+                play++;   // the request AdvanceAsync takes; anything newer than that is the user
+                if (await AdvanceAsync() != AdvanceOutcome.Overtaken) return;
+                // A load started after the end took over from the advance, and may yet fail.
+                if (!await LoadsLeftDeckEmptyAsync(play)) return;
+            }
+            PlaybackRefused?.Invoke(this, $"{Label}: the next track kept being replaced, so the queue was left as it is.");
+        }
         catch (Exception e) { PlaybackRefused?.Invoke(this, $"{Label}: {e.Message}"); }
     }
 
     /// <summary>
+    /// Waits for the latest load to settle, looping because a newer one can replace it. A
+    /// load that lands keeps the deck and any Play waiting on it goes ahead with it; the
+    /// queue keeps its next track, and the end has already been reported as played. Only
+    /// one that leaves the deck empty is the end's to follow, or the mix would stay silent
+    /// with tracks queued, and then only if the user has pressed nothing since.
+    /// </summary>
+    private async Task<bool> LoadsLeftDeckEmptyAsync(int play)
+    {
+        while (!_loading.IsCompleted) await _loading;
+        return _deck.Track is null && play == _playRequest;
+    }
+
+    /// <summary>
     /// Loads and plays the next queued track, skipping any that cannot be opened.
-    /// Gives up after one pass of the queue, so a repeating queue of missing files
-    /// cannot spin forever.
+    /// Gives up after one pass of the queue as it stood when it last changed, or if
+    /// the next track keeps changing, so a repeating queue of missing files cannot
+    /// spin forever. A track stays queued until its load commits, so a load that gets
+    /// overtaken leaves the queue exactly as it was.
     /// </summary>
     /// <returns>True when something is now playing.</returns>
-    public async Task<bool> PlayNextAsync()
+    public async Task<bool> PlayNextAsync() => await AdvanceAsync() == AdvanceOutcome.Playing;
+
+    private async Task<AdvanceOutcome> AdvanceAsync()
     {
         int play = ++_playRequest;
-        for (int attempts = Playlist.Count; attempts > 0; attempts--)
+        int attempts = Playlist.Count;
+        int changesFollowed = 0;
+        while (attempts > 0)
         {
-            if (DequeueNext() is not { } next) return false;
-            LoadOutcome outcome = await LoadForPlaybackAsync(next);
-            if (outcome == LoadOutcome.Superseded || play != _playRequest) return false;
-            if (outcome == LoadOutcome.Failed) continue;
-            _deck.Play();
-            return true;
+            if (PeekNext() is not { } next) return AdvanceOutcome.Finished;
+            LoadOutcome outcome = await LoadForPlaybackAsync(next, () => TakeIfStillNext(next));
+            if (outcome == LoadOutcome.Superseded) return AdvanceOutcome.Overtaken;
+            if (play != _playRequest) return AdvanceOutcome.Finished;
+            switch (outcome)
+            {
+                case LoadOutcome.Failed:
+                    attempts--;
+                    break;
+                case LoadOutcome.QueueChanged:
+                    // A different queue gets its own pass; the limit is what bounds this now.
+                    if (++changesFollowed == MaxQueueChangesFollowed)
+                    {
+                        PlaybackRefused?.Invoke(this, $"{Label}: the queue kept changing, so no next track was started.");
+                        return AdvanceOutcome.Finished;
+                    }
+                    attempts = Playlist.Count;
+                    break;
+                default:
+                    _deck.Play();
+                    return AdvanceOutcome.Playing;
+            }
         }
-        return false;
+        return AdvanceOutcome.Finished;
+    }
+
+    /// <summary>
+    /// Pops <paramref name="track"/> if it is still what is next. The queue can change
+    /// while a file opens, and popping whatever is next then would load the wrong track.
+    /// </summary>
+    private bool TakeIfStillNext(Track track)
+    {
+        if (!ReferenceEquals(PeekNext(), track)) return false;
+        DequeueNext();
+        return true;
     }
 
     /// <summary>Seeks to a fraction of the track, used by clicking the waveform.</summary>
@@ -566,6 +671,13 @@ public sealed partial class DeckViewModel : ViewModelBase
     /// <summary>Pulls the current transport state out of the deck for the UI.</summary>
     public void Refresh()
     {
+        // Whoever dequeued loads in the same UI job, so by any tick that has happened; if
+        // they never did, this stops the file staying open for good.
+        if (_dequeuedForLoad is not null)
+        {
+            _dequeuedForLoad = null;
+            RetainWanted();
+        }
         if (!ReferenceEquals(_deck.Track, _currentTrack))
         {
             _ = OnTrackChangedAsync();

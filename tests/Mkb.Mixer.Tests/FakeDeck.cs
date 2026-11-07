@@ -18,6 +18,9 @@ public sealed class FakeDeck(DeckId id) : IDeck
     public int LoadCount { get; private set; }
     public int PlayCount { get; private set; }
 
+    /// <summary>How many paths had been prepared when Load last ran, to pin prepare-next before load.</summary>
+    public int PreparedCountAtLoad { get; private set; }
+
     /// <summary>Test helper: position the playhead so this much time is left.</summary>
     public void SetRemaining(TimeSpan remaining) => Position = Duration - remaining;
 
@@ -61,9 +64,25 @@ public sealed class FakeDeck(DeckId id) : IDeck
 
     public void ReleasePrepared() => ReleasePreparedCount++;
 
+    /// <summary>What the deck was last told to keep open, sorted; null until it first is.</summary>
+    public string[] Retained { get; private set; } = null!;
+
+    /// <summary>What was retained when Load last ran: the real deck opens anything else on the calling thread.</summary>
+    public string[] RetainedAtLoad { get; private set; } = null!;
+
+    public int RetainCount { get; private set; }
+
+    public void RetainPrepared(IReadOnlyCollection<string> paths)
+    {
+        RetainCount++;
+        Retained = paths.Order().ToArray();
+    }
+
     public void Load(Track track)
     {
         LoadCount++;
+        PreparedCountAtLoad = PreparedPaths.Count;
+        RetainedAtLoad = Retained;
         if (Unloadable.Contains(track.Path))
         {
             Track = null;

@@ -23,9 +23,10 @@ internal sealed class SoundFlowDeck : IDeck
 
     // Two, not one: DequeueNext prefetches the following track before its caller
     // Loads the dequeued one, so a single slot would always evict the track about to load.
+    // RetainPrepared is what normally frees a slot; eviction is only the backstop.
     private const int MaxPrepared = 2;
     private static readonly TimeSpan OpenDisposeTimeout = TimeSpan.FromSeconds(2);
-    private readonly List<PreparedChain> _prepared = [];   // oldest first
+    private readonly List<PreparedChain> _prepared = [];   // least recently asked for first
     // Every open running, including evicted ones no longer in _prepared: Dispose must outlast them all.
     private readonly List<PreparedChain> _opening = [];
     private bool _disposed;
@@ -106,7 +107,10 @@ internal sealed class SoundFlowDeck : IDeck
     /// <summary>Called as each file is opened, so tests can count opens and hold one running.</summary>
     internal Action<string>? OpeningHook { get; set; }
 
-    /// <summary>What is prepared or being prepared, oldest first.</summary>
+    /// <summary>Called as a discarded open tears down its chain, so tests can hold it there.</summary>
+    internal Action<string>? TearingDownHook { get; set; }
+
+    /// <summary>What is prepared or being prepared, least recently asked for first.</summary>
     internal IReadOnlyList<string> PreparedPaths
     {
         get { lock (_gate) return _prepared.ConvertAll(p => p.Path); }
@@ -131,6 +135,12 @@ internal sealed class SoundFlowDeck : IDeck
                 _prepared.Add(added);
                 _opening.Add(added);
                 added.Opening = Task.Run(() => FinishOpening(added));
+            }
+            else
+            {
+                // Asked for again means still wanted: eviction must not treat it as the oldest.
+                _prepared.Remove(prepared);
+                _prepared.Add(prepared);
             }
             opening = prepared.Opening;
         }
@@ -157,16 +167,20 @@ internal sealed class SoundFlowDeck : IDeck
 
         lock (_gate)
         {
-            _opening.Remove(prepared);
             if (!prepared.Discarded)
             {
+                _opening.Remove(prepared);
                 if (chain is null) _prepared.Remove(prepared);
                 prepared.Chain = chain;
                 return;
             }
         }
         // Lost while it was opening: nobody else knows about this chain.
+        TearingDownHook?.Invoke(prepared.Path);
         chain?.TryDispose();
+        // Only now: Dispose frees the engine once nothing here is running, and tearing down
+        // a decoder touches it. Not under the gate, which the UI thread takes.
+        lock (_gate) _opening.Remove(prepared);
     }
 
     /// <summary>Caller holds <see cref="_gate"/>. An open still running sees the flag and disposes its own chain.</summary>
@@ -176,6 +190,13 @@ internal sealed class SoundFlowDeck : IDeck
         _prepared.Remove(prepared);
         prepared.Chain?.TryDispose();
         prepared.Chain = null;
+    }
+
+    public void RetainPrepared(IReadOnlyCollection<string> paths)
+    {
+        lock (_gate)
+            foreach (PreparedChain prepared in _prepared.ToArray())
+                if (!paths.Contains(prepared.Path)) Discard(prepared);
     }
 
     public void ReleasePrepared()

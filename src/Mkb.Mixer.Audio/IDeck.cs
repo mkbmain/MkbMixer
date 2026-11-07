@@ -44,8 +44,10 @@ public interface IDeck : IDisposable
     /// <see cref="Load"/> of it has nothing slow left to do. Opening scans the whole
     /// file, too slow for the UI thread. A failure is not reported here: <see cref="Load"/>
     /// then opens the file itself and throws the real error. Cancelling only stops the
-    /// caller waiting; an open cannot be interrupted, and what it opens stays prepared.
-    /// If the file has since changed or gone, <see cref="Load"/> opens it afresh instead.
+    /// caller waiting; an open cannot be interrupted, and what it opens stays prepared
+    /// until <see cref="RetainPrepared"/> or <see cref="ReleasePrepared"/> lets it go, or
+    /// newer preparations push it out. If the file has since changed or gone,
+    /// <see cref="Load"/> opens it afresh instead.
     /// </summary>
     Task PrepareAsync(Track track, CancellationToken ct = default);
 
@@ -55,6 +57,13 @@ public interface IDeck : IDisposable
     /// is not affected.
     /// </summary>
     void ReleasePrepared();
+
+    /// <summary>
+    /// Closes every file opened ahead of time except these, because an open file cannot be
+    /// renamed or retagged on Windows and stops a drive ejecting. An open still running is
+    /// discarded when it finishes. The loaded track is not affected.
+    /// </summary>
+    void RetainPrepared(IReadOnlyCollection<string> paths);
 
     void Play();
     void Pause();

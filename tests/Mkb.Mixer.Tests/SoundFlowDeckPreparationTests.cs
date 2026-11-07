@@ -393,6 +393,240 @@ public class SoundFlowDeckPreparationTests : IDisposable
     }
 
     [Fact]
+    public async Task RetainingClosesOnlyTheFilesNotListed()
+    {
+        RequireAudioContext();
+        Track a = Tone("a"), b = Tone("b");
+        await _deck.PrepareAsync(a, Ct).WaitAsync(Timeout, Ct);
+        await _deck.PrepareAsync(b, Ct).WaitAsync(Timeout, Ct);
+        Assert.True(IsHeld(a));   // or the checks below would prove nothing
+
+        _deck.RetainPrepared([b.Path]);
+
+        Assert.Equal([b.Path], _deck.PreparedPaths);
+        Assert.False(IsHeld(a));
+        Assert.True(IsHeld(b));
+    }
+
+    [Fact]
+    public async Task RetainingNothingDiscardsARunningOpenWhenItFinishes()
+    {
+        RequireAudioContext();
+        Track a = Tone("a");
+        HoldOpens();
+        Task opening = _deck.PrepareAsync(a, Ct);
+        Assert.True(SpinWait.SpinUntil(() => Opens.Length > 0, Timeout));
+
+        _deck.RetainPrepared([]);
+        Assert.Empty(_deck.PreparedPaths);
+        _release.Set();
+        await opening.WaitAsync(Timeout, Ct);
+
+        Assert.Empty(_deck.PreparedPaths);
+        Assert.False(IsHeld(a));
+    }
+
+    [Fact]
+    public async Task PreparingAPathAlreadyPreparedMakesItTheNewest()
+    {
+        RequireAudioContext();
+        Track a = Tone("a"), b = Tone("b"), c = Tone("c");
+        await _deck.PrepareAsync(a, Ct).WaitAsync(Timeout, Ct);
+        await _deck.PrepareAsync(b, Ct).WaitAsync(Timeout, Ct);
+
+        await _deck.PrepareAsync(a, Ct).WaitAsync(Timeout, Ct);
+        await _deck.PrepareAsync(c, Ct).WaitAsync(Timeout, Ct);
+
+        Assert.Equal([a.Path, c.Path], _deck.PreparedPaths);
+        Assert.True(IsHeld(a));
+        Assert.False(IsHeld(b));
+    }
+
+    [Fact]
+    public async Task ClearingTheQueueClosesThePreparedFile()
+    {
+        RequireAudioContext();
+        Track a = Tone("a");
+        var vm = NewViewModel();
+        vm.Playlist.Add(a);
+        await _deck.PrepareAsync(a, Ct).WaitAsync(Timeout, Ct);
+        Assert.True(IsHeld(a));
+
+        vm.Playlist.Clear();
+
+        Assert.Empty(_deck.PreparedPaths);
+        Assert.False(IsHeld(a));
+    }
+
+    [Fact]
+    public async Task WhenNextUpChangesTheOldFileClosesAndTheNewOneOpens()
+    {
+        RequireAudioContext();
+        Track a = Tone("a"), b = Tone("b");
+        var vm = NewViewModel();
+        vm.Playlist.Add(a);
+        await _deck.PrepareAsync(a, Ct).WaitAsync(Timeout, Ct);
+
+        vm.Playlist.Insert(0, b);
+        await _deck.PrepareAsync(b, Ct).WaitAsync(Timeout, Ct);
+
+        Assert.Equal([b.Path], _deck.PreparedPaths);
+        Assert.False(IsHeld(a));
+        Assert.True(IsHeld(b));
+    }
+
+    [Fact]
+    public async Task ASupersededLoadLeavesItsFileClosed()
+    {
+        RequireAudioContext();
+        Track x = Tone("x"), y = Tone("y");
+        var vm = NewViewModel();
+        HoldOpens(onlyPath: x.Path);
+
+        Task<bool> first = vm.LoadAsync(x);
+        Task<bool> second = vm.LoadAsync(y);
+        Assert.True(await second.WaitAsync(Timeout, Ct));
+        _release.Set();
+        Assert.False(await first.WaitAsync(Timeout, Ct));
+
+        Assert.Empty(_deck.PreparedPaths);
+        Assert.False(IsHeld(x));
+        Assert.Same(y, _deck.Track);
+    }
+
+    [Fact]
+    public async Task TheAutoCuesLoadFindsTheDequeuedTracksChainAndOpensNothingItself()
+    {
+        // The whole reason for preparing: a fresh open here scans the file on the UI timer.
+        RequireAudioContext();
+        Track x = Tone("x"), y = Tone("y");
+        var vm = NewViewModel();
+        vm.Playlist.Add(x);
+        vm.Playlist.Add(y);
+        await _deck.PrepareAsync(x, Ct).WaitAsync(Timeout, Ct);
+        var outgoing = new FakeDeck(DeckId.B);
+        outgoing.Load(new Track("/m/out.mp3", "out", Duration: TimeSpan.FromMinutes(3)));
+        outgoing.SetRemaining(TimeSpan.FromSeconds(5));
+        outgoing.Play();
+        var autoCue = new AutoCue(_deck, outgoing, _ => vm.DequeueNext()) { Enabled = true };
+
+        autoCue.Tick(TimeSpan.Zero);
+
+        Assert.Same(x, _deck.Track);
+        Assert.Equal(1, Opens.Count(p => p == x.Path));
+        Assert.Equal([y.Path], _deck.PreparedPaths);
+    }
+
+    [Fact]
+    public async Task ALoadRunningWhenTheAutoCueDequeuesDoesNotCostTheDequeuedTrackItsChain()
+    {
+        // Three wanted and two slots, so w has to go, and retaining drops it before y is prepared.
+        // Prepare first, or keep all three, and oldest-first eviction takes x instead.
+        RequireAudioContext();
+        Track x = Tone("x"), y = Tone("y"), w = Tone("w");
+        var vm = NewViewModel();
+        vm.Playlist.Add(x);
+        vm.Playlist.Add(y);
+        await _deck.PrepareAsync(x, Ct).WaitAsync(Timeout, Ct);
+        HoldOpens(onlyPath: w.Path);
+        Task<bool> running = vm.LoadAsync(w);
+        // Or a discard could finish this load's wait before the Load below. On the UI thread its
+        // continuation could not run until that Load had happened; this test has no such thread.
+        Assert.True(SpinWait.SpinUntil(() => Opens.Contains(w.Path), Timeout));
+
+        Assert.Same(x, vm.DequeueNext());
+        _deck.Load(x);
+
+        Assert.Equal(1, Opens.Count(p => p == x.Path));
+        _release.Set();
+        Assert.False(await running.WaitAsync(Timeout, Ct));
+        Assert.Same(x, _deck.Track);
+        Assert.False(IsHeld(w));
+    }
+
+    [Fact]
+    public async Task AQueueReorderThatComesBackDoesNotCostTheTrackAboutToLoadItsChain()
+    {
+        // Next-up goes x, z, x. If x then counts as older than z, the prefetch made as the
+        // dequeue commits evicts it, and the Load opens it on the UI thread, inside the gate.
+        RequireAudioContext();
+        Track x = Tone("x"), y = Tone("y"), z = Tone("z");
+        var vm = NewViewModel();
+        vm.Playlist.Add(x);
+        vm.Playlist.Add(y);
+        vm.Playlist.Add(z);
+        await _deck.PrepareAsync(x, Ct).WaitAsync(Timeout, Ct);
+
+        vm.Playlist.Move(2, 1);
+        vm.Playlist.Move(1, 0);
+        await _deck.PrepareAsync(z, Ct).WaitAsync(Timeout, Ct);
+        vm.Playlist.Move(0, 1);
+        vm.Playlist.Move(1, 2);
+        await _deck.PrepareAsync(x, Ct).WaitAsync(Timeout, Ct);
+        int opensOfX = Opens.Count(p => p == x.Path);
+
+        Assert.True(await vm.PlayNextAsync().WaitAsync(Timeout, Ct));
+
+        Assert.Same(x, _deck.Track);
+        Assert.Equal(opensOfX, Opens.Count(p => p == x.Path));
+    }
+
+    [Fact]
+    public async Task ALoadStartedBeforeTheNextTickKeepsItsOpenThroughAQueueEdit()
+    {
+        // Losing it would make the load open the file on the UI thread, inside the gate.
+        RequireAudioContext();
+        Track x = Tone("x"), y = Tone("y"), z = Tone("z"), other = Tone("other");
+        var vm = NewViewModel();
+        vm.Playlist.Add(x);
+        vm.Playlist.Add(z);
+        await _deck.PrepareAsync(x, Ct).WaitAsync(Timeout, Ct);
+        Assert.Same(x, vm.DequeueNext());
+        _deck.Load(x);
+        HoldOpens(onlyPath: y.Path);
+
+        Task<bool> load = vm.LoadAsync(y);
+        Assert.True(SpinWait.SpinUntil(() => Opens.Contains(y.Path), Timeout));
+        vm.Playlist.Add(other);
+        _release.Set();
+
+        Assert.True(await load.WaitAsync(Timeout, Ct));
+        Assert.Same(y, _deck.Track);
+        Assert.Equal(1, Opens.Count(p => p == y.Path));
+    }
+
+    [Fact]
+    public async Task DisposeWaitsForADiscardedOpenStillTearingDownItsChain()
+    {
+        // Only a lower bound on the time: running slow cannot fail this. Dispose has nothing
+        // to wait for unless the teardown still counts as running, and then waits its full bound.
+        RequireAudioContext();
+        Track a = Tone("a");
+        HoldOpens();
+        using var tearingDown = new ManualResetEventSlim();
+        using var finishTearingDown = new ManualResetEventSlim();
+        _deck.TearingDownHook = _ =>
+        {
+            tearingDown.Set();
+            finishTearingDown.Wait(Timeout);
+        };
+        Task opening = _deck.PrepareAsync(a, CancellationToken.None);
+        Assert.True(SpinWait.SpinUntil(() => Opens.Length > 0, Timeout));
+        _deck.RetainPrepared([]);
+        _release.Set();
+        Assert.True(tearingDown.Wait(Timeout, Ct));
+
+        var clock = Stopwatch.StartNew();
+        _deck.Dispose();
+        clock.Stop();
+
+        finishTearingDown.Set();
+        await opening.WaitAsync(Timeout, Ct);
+        Assert.True(clock.Elapsed.TotalSeconds >= 1.9, $"Dispose returned after {clock.Elapsed.TotalSeconds:0.00}s");
+        Assert.False(IsHeld(a));
+    }
+
+    [Fact]
     public async Task LoadingAWhileItIsOpeningWaitsAndUsesThatOpen()
     {
         // The auto-cue's Load can arrive mid-open; a second scan would only take longer.
