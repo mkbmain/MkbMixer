@@ -188,4 +188,34 @@ public class TrackStoreTests : IDisposable
 
         Assert.Null(ex);
     }
+
+    [Fact]
+    public void AChangeAfterAFlushIsSavedByTheNext()
+    {
+        using var store = new TrackStore(StorePath);
+        store.Update("/a.mp3", i => i with { Bpm = 100 });
+        store.Flush();
+        store.Update("/a.mp3", i => i with { Bpm = 130 });
+        store.Flush();
+
+        using var reloaded = new TrackStore(StorePath);
+
+        Assert.Equal(130, reloaded.Get("/a.mp3")!.Bpm);
+    }
+
+    [Fact]
+    public void AFailedWriteLeavesTheDataDirtyForTheNextFlush()
+    {
+        using var store = new TrackStore(StorePath);
+        store.Update("/a.mp3", i => i with { Bpm = 100 });
+        // A directory where the temp file goes makes the write fail.
+        Directory.CreateDirectory(StorePath + ".tmp");
+
+        Assert.Null(Record.Exception(store.Flush));
+        Directory.Delete(StorePath + ".tmp");
+        store.Flush();
+
+        using var reloaded = new TrackStore(StorePath);
+        Assert.Equal(100, reloaded.Get("/a.mp3")!.Bpm);
+    }
 }

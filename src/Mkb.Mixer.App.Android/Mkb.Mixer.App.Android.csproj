@@ -10,6 +10,8 @@
     <ApplicationVersion>1</ApplicationVersion>
     <ApplicationDisplayVersion>1.0</ApplicationDisplayVersion>
     <AndroidPackageFormat>apk</AndroidPackageFormat>
+    <!-- Release already AOT-compiles; false makes that full AOT instead of the default
+         startup profile, so the audio path is not compiled at runtime. Costs about 15 MB of APK. -->
     <AndroidEnableProfiledAot>false</AndroidEnableProfiledAot>
   </PropertyGroup>
 

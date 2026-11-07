@@ -107,4 +107,82 @@ public class WaveformViewTests
             Assert.True(Math.Abs(normal[i] - doubled[i]) < 0.02,
                 $"column {i}: bar starts at {normal[i]:0.000} at 1x but {doubled[i]:0.000} at 2x");
     });
+
+    private static (Window, WaveformView, List<double> Seeks, TimeSpan[] Now) BuildDraggable()
+    {
+        var (window, view) = Build(400, 100);
+        var now = new[] { TimeSpan.FromSeconds(1) };
+        view.Clock = () => now[0];
+        var seeks = new List<double>();
+        view.Seeked += (_, f) => seeks.Add(f);
+        return (window, view, seeks, now);
+    }
+
+    [Fact]
+    public void AClickRaisesExactlyOneSeek() => AvaloniaTest.Run(() =>
+    {
+        var (window, _, seeks, _) = BuildDraggable();
+        window.MouseDown(new Point(100, 50), Avalonia.Input.MouseButton.Left);
+        window.MouseUp(new Point(100, 50), Avalonia.Input.MouseButton.Left);
+        Assert.Equal([0.25], seeks);
+        window.Close();
+    });
+
+    [Fact]
+    public void FastDragMovesRaiseFewSeeksAndTheLastPositionArrivesOnRelease() => AvaloniaTest.Run(() =>
+    {
+        var (window, _, seeks, now) = BuildDraggable();
+        window.MouseDown(new Point(0, 50), Avalonia.Input.MouseButton.Left);
+        for (int x = 1; x <= 200; x++)
+        {
+            now[0] += TimeSpan.FromMilliseconds(1);   // 200 moves in 200 ms
+            window.MouseMove(new Point(x, 50));
+        }
+        now[0] += TimeSpan.FromMilliseconds(1);
+        window.MouseMove(new Point(300, 50));   // inside the interval of the last seek, so held back
+        Assert.InRange(seeks.Count, 1, 6);
+        Assert.NotEqual(0.75, seeks[^1]);
+        int before = seeks.Count;
+
+        window.MouseUp(new Point(300, 50), Avalonia.Input.MouseButton.Left);
+        Assert.Equal(0.75, seeks[^1]);
+        Assert.Equal(before + 1, seeks.Count);
+        window.Close();
+    });
+
+    [Fact]
+    public void ASlowDragSeeksOnEveryMove() => AvaloniaTest.Run(() =>
+    {
+        var (window, _, seeks, now) = BuildDraggable();
+        window.MouseDown(new Point(0, 50), Avalonia.Input.MouseButton.Left);
+        for (int x = 40; x <= 200; x += 40)
+        {
+            now[0] += WaveformView.SeekInterval;
+            window.MouseMove(new Point(x, 50));
+        }
+        window.MouseUp(new Point(200, 50), Avalonia.Input.MouseButton.Left);
+        Assert.Equal(6, seeks.Count);   // the press and five moves; nothing was held back
+        window.Close();
+    });
+
+    [Fact]
+    public void ALostCaptureStillSendsTheHeldPosition() => AvaloniaTest.Run(() =>
+    {
+        var (window, view, seeks, now) = BuildDraggable();
+        Avalonia.Input.IPointer? pointer = null;
+        view.AddHandler(Avalonia.Input.InputElement.PointerMovedEvent, (_, e) => pointer = e.Pointer);
+        window.MouseDown(new Point(0, 50), Avalonia.Input.MouseButton.Left);
+        now[0] += TimeSpan.FromMilliseconds(1);
+        window.MouseMove(new Point(300, 50));   // within the interval, so held back
+        Assert.Single(seeks);
+
+        pointer!.Capture(null);
+        Assert.Equal(0.75, seeks[^1]);
+        Assert.Equal(2, seeks.Count);
+
+        window.MouseMove(new Point(350, 50));   // no longer dragging
+        window.MouseUp(new Point(350, 50), Avalonia.Input.MouseButton.Left);
+        Assert.Equal(2, seeks.Count);
+        window.Close();
+    });
 }

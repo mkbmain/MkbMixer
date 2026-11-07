@@ -74,9 +74,10 @@ public sealed class TrackStore : IDisposable
         _saveTimer?.Change(_saveDelay, Timeout.InfiniteTimeSpan);
     }
 
-    public void SetAnalysis(string path, TrackAnalysis analysis)
+    /// <param name="knownStamp">The file's stamp if the caller already read it, so both agree and the disk is touched once.</param>
+    public void SetAnalysis(string path, TrackAnalysis analysis, FileStamp? knownStamp = null)
     {
-        FileStamp stamp = FileStamp.Of(path);
+        FileStamp stamp = knownStamp ?? FileStamp.Of(path);
         Update(path, i => i with
         {
             FileSize = stamp.Size,
@@ -111,8 +112,9 @@ public sealed class TrackStore : IDisposable
     /// it comes back. Saved on the next flush. Touches the disk once per track, so
     /// call it off the UI thread.
     /// </summary>
+    /// <param name="forgotten">Called with each forgotten path, so per-track files kept elsewhere can go too.</param>
     /// <returns>How many tracks were forgotten.</returns>
-    public int ForgetMissing()
+    public int ForgetMissing(Action<string>? forgotten = null)
     {
         string[] paths;
         lock (_gate) paths = [.. _tracks.Keys];
@@ -121,12 +123,17 @@ public sealed class TrackStore : IDisposable
         List<string> missing = paths.Where(IsDeleted).ToList();
         if (missing.Count == 0) return 0;
 
+        int count;
+        List<string> gone;
         lock (_gate)
         {
-            int forgotten = missing.Count(_tracks.Remove);
-            if (forgotten > 0) _dirty = true;
-            return forgotten;
+            List<string> removed = missing.Where(_tracks.Remove).ToList();
+            if (removed.Count > 0) _dirty = true;
+            count = removed.Count;
+            gone = removed;
         }
+        foreach (string path in gone) forgotten?.Invoke(path);
+        return count;
 
         static bool IsDeleted(string path) =>
             !File.Exists(path) && Path.GetDirectoryName(path) is { Length: > 0 } dir && Directory.Exists(dir);
@@ -138,14 +145,18 @@ public sealed class TrackStore : IDisposable
         if (_path is null || _writesDisabled) return;
         lock (_writeGate)
         {
-            string json;
+            Dictionary<string, TrackInfo> snapshot;
             lock (_gate)
             {
                 if (!_dirty) return;
                 _dirty = false;
-                try { json = JsonSerializer.Serialize(_tracks, Options); }
-                catch (Exception) { _dirty = true; return; }
+                // Copied so serialising a big library does not hold _gate: TrackInfo is an
+                // immutable record, so sharing the values is safe.
+                snapshot = new Dictionary<string, TrackInfo>(_tracks, PathComparer);
             }
+            string json;
+            try { json = JsonSerializer.Serialize(snapshot, Options); }
+            catch (Exception) { lock (_gate) _dirty = true; return; }
             try
             {
                 string? dir = Path.GetDirectoryName(_path);

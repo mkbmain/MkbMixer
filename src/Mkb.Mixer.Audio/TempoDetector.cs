@@ -27,9 +27,35 @@ public static class TempoDetector
 
     public static (double? Bpm, TimeSpan? BeatOffset) Detect(AnalysisSignal signal)
     {
-        int hop = Math.Max(1, signal.SampleRate / FramesPerSecond);
-        double frameRate = (double)signal.SampleRate / hop;
-        float[] onset = OnsetEnvelope(signal.Samples, hop);
+        int hop = HopSamples(signal.SampleRate);
+        int hops = signal.Samples.Length / hop;
+        var energy = new double[hops];
+        for (int h = 0; h < hops; h++)
+            energy[h] = SumOfSquares(signal.Samples.AsSpan(h * hop, hop));
+        return Detect(energy, signal.SampleRate);
+    }
+
+    /// <summary>Samples per 10 ms frame at <paramref name="sampleRate"/>.</summary>
+    public static int HopSamples(int sampleRate) => Math.Max(1, sampleRate / FramesPerSecond);
+
+    /// <summary>Sum of squares in the order the window sums have always used.</summary>
+    public static double SumOfSquares(ReadOnlySpan<float> samples)
+    {
+        double sum = 0;
+        foreach (float s in samples) sum += (double)s * s;
+        return sum;
+    }
+
+    /// <summary>
+    /// Detects from the sum of squares of each whole <see cref="HopSamples"/> hop, so
+    /// a streaming caller need not keep the signal. Each analysis window spans two
+    /// hops, so its energy is the sum of two neighbouring entries.
+    /// </summary>
+    public static (double? Bpm, TimeSpan? BeatOffset) Detect(ReadOnlySpan<double> hopEnergy, int sampleRate)
+    {
+        int hop = HopSamples(sampleRate);
+        double frameRate = (double)sampleRate / hop;
+        float[] onset = OnsetEnvelope(hopEnergy, hop);
 
         int maxLag = (int)Math.Ceiling(60 * frameRate / MinBpm * Harmonics) + 2;
         if (onset.Length < maxLag * 2) return (null, null);
@@ -65,20 +91,15 @@ public static class TempoDetector
     }
 
     /// <summary>Positive rises in log energy per 10 ms frame, with the mean removed.</summary>
-    private static float[] OnsetEnvelope(float[] samples, int hop)
+    private static float[] OnsetEnvelope(ReadOnlySpan<double> hopEnergy, int hop)
     {
         int window = hop * 2;
-        int frames = (samples.Length - window) / hop;
+        int frames = hopEnergy.Length - 2;
         if (frames < 2) return [];
 
         var energy = new double[frames];
         for (int f = 0; f < frames; f++)
-        {
-            double sum = 0;
-            int start = f * hop;
-            for (int i = start; i < start + window; i++) sum += (double)samples[i] * samples[i];
-            energy[f] = Math.Log10(1e-6 + sum / window);
-        }
+            energy[f] = Math.Log10(1e-6 + (hopEnergy[f] + hopEnergy[f + 1]) / window);
 
         var onset = new float[frames];
         double mean = 0;

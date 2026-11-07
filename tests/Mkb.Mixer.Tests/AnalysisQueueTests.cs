@@ -17,6 +17,34 @@ public class AnalysisQueueTests
     }
 
     [Fact]
+    public async Task QueueFolderReplacesLibraryEntriesKeepsNextUpAndDropsDuplicates()
+    {
+        var (queue, engine, _) = Manual();
+        queue.QueueFolder([T("old")]);
+        queue.Prefetch(T("n"));
+
+        queue.QueueFolder([T("n"), T("x"), T("x"), T("y")]);
+
+        Assert.Equal(3, queue.PendingCount);
+        await queue.DrainAsync();
+        Assert.Equal(["/m/n.mp3", "/m/x.mp3", "/m/y.mp3"], engine.AnalysedPaths);
+    }
+
+    [Fact]
+    public void QueueingTwentyThousandTracksIsFast()
+    {
+        var (queue, _, _) = Manual();
+        Track[] tracks = [.. Enumerable.Range(0, 20_000).Select(n => T($"t{n}"))];
+
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        queue.QueueFolder(tracks);
+        clock.Stop();
+
+        Assert.Equal(20_000, queue.PendingCount);
+        Assert.True(clock.Elapsed < TimeSpan.FromMilliseconds(500), $"took {clock.Elapsed}");
+    }
+
+    [Fact]
     public async Task NextUpTracksRunBeforeLibraryTracks()
     {
         var (queue, engine, _) = Manual();
@@ -131,6 +159,8 @@ public class AnalysisQueueTests
         deck.Refresh();
 
         Assert.Equal("second", deck.NowPlaying);
+        // The waveform arrives from a background analysis, so allow it a moment.
+        SpinWait.SpinUntil(() => !ReferenceEquals(Waveform.Empty, deck.Waveform), TimeSpan.FromSeconds(5));
         Assert.NotSame(Waveform.Empty, deck.Waveform);
     }
 

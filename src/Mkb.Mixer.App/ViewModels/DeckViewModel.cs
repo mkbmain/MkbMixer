@@ -26,6 +26,12 @@ public sealed partial class DeckViewModel : ViewModelBase
     private Track? _lastDequeued;
     private Track? _nextUp;
     private bool _dequeuing;
+    // Load paths wait for the file to open, so requests can overlap. UI thread only.
+    private int _loadRequest;
+    private int _playRequest;
+    private Task<LoadOutcome> _loading = Task.FromResult(LoadOutcome.Loaded);
+
+    private enum LoadOutcome { Loaded, Failed, Superseded }
 
     /// <param name="random">Injectable so tests can make shuffle deterministic.</param>
     /// <param name="analysis">Shared with the other deck and the library; a private in-memory one when omitted.</param>
@@ -275,12 +281,53 @@ public sealed partial class DeckViewModel : ViewModelBase
     partial void OnIsCuedChanged(bool value) => _deck.IsCued = value;
 
     /// <summary>Loads a track and kicks off its analysis in the background.</summary>
-    /// <returns>False when the file could not be opened; the deck is then empty and the reason reported.</returns>
+    /// <returns>
+    /// False when the file could not be opened, the deck then being empty and the
+    /// reason reported, or when a newer load took over while this one waited.
+    /// </returns>
     public async Task<bool> LoadAsync(Track track)
     {
-        bool loaded = TryLoad(track);
+        LoadOutcome outcome = await (_loading = PrepareThenLoadAsync(track));
+        if (outcome == LoadOutcome.Superseded) return false;
         await OnTrackChangedAsync();
-        return loaded;
+        return outcome == LoadOutcome.Loaded;
+    }
+
+    /// <summary>
+    /// Loads a track for immediate playback: analysis carries on in the background
+    /// so audio need not wait for the whole-track decode.
+    /// </summary>
+    private async Task<LoadOutcome> LoadForPlaybackAsync(Track track)
+    {
+        LoadOutcome outcome = await (_loading = PrepareThenLoadAsync(track));
+        if (outcome != LoadOutcome.Superseded) ObserveInBackground(OnTrackChangedAsync());
+        return outcome;
+    }
+
+    /// <summary>
+    /// Opens the file off the UI thread, then loads it, unless by then the deck has
+    /// been asked for something newer: another load here, or the auto-cue's own Load.
+    /// </summary>
+    private async Task<LoadOutcome> PrepareThenLoadAsync(Track track)
+    {
+        int request = ++_loadRequest;
+        Track? held = _deck.Track;
+        await PrepareQuietlyAsync(track);
+        if (request != _loadRequest || !ReferenceEquals(_deck.Track, held)) return LoadOutcome.Superseded;
+        return TryLoad(track) ? LoadOutcome.Loaded : LoadOutcome.Failed;
+    }
+
+    private async Task PrepareQuietlyAsync(Track track)
+    {
+        try { await _deck.PrepareAsync(track); }
+        catch (Exception) { /* Load opens the file itself and reports what is wrong with it */ }
+    }
+
+    /// <summary>Nothing awaits a background analysis, so its failure has to be reported here or it would go unobserved.</summary>
+    private async void ObserveInBackground(Task analysis)
+    {
+        try { await analysis; }
+        catch (Exception e) { PlaybackRefused?.Invoke(this, $"{Label}: could not analyse the track: {e.Message}"); }
     }
 
     private bool TryLoad(Track track)
@@ -310,9 +357,10 @@ public sealed partial class DeckViewModel : ViewModelBase
         Waveform = Waveform.Empty;
         ApplyStoredInfo();
         Refresh();
+        // First, so a failed load does not let the previous track's waveform land on the empty deck.
+        _analysisCts?.Cancel();
         if (track is null) return;
 
-        _analysisCts?.Cancel();
         _analysisCts = new CancellationTokenSource();
         CancellationToken ct = _analysisCts.Token;
         try
@@ -330,7 +378,8 @@ public sealed partial class DeckViewModel : ViewModelBase
     /// <summary>Raised when the user asks for playback that cannot happen, so the UI can say why.</summary>
     public event EventHandler<string>? PlaybackRefused;
 
-    [RelayCommand]
+    // Concurrent so the button stays enabled while a file opens; waiting is not a reason to grey it out.
+    [RelayCommand(AllowConcurrentExecutions = true)]
     private async Task PlayAsync()
     {
         if (!_engine.IsOutputAvailable)
@@ -340,10 +389,22 @@ public sealed partial class DeckViewModel : ViewModelBase
             return;
         }
 
+        int play = ++_playRequest;
+
+        // Load then Play means play that track, as it did when loading could not be
+        // overtaken, and not whatever the deck held until the load lands.
+        if (!_loading.IsCompleted)
+        {
+            int load = _loadRequest;
+            LoadOutcome outcome = await _loading;
+            if (outcome == LoadOutcome.Superseded || load != _loadRequest || play != _playRequest) return;
+        }
+
         // Pressing play with nothing loaded pulls the top of the playlist, which is
         // what the original did implicitly via its selected-item lookup.
-        if (_deck.Track is null && Playlist.Count > 0 && !await LoadAsync(Playlist[0]))
-            return;   // LoadAsync has already said why
+        if (_deck.Track is null && Playlist.Count > 0
+            && (await LoadForPlaybackAsync(Playlist[0]) != LoadOutcome.Loaded || play != _playRequest))
+            return;   // TryLoad has already said why, or something newer took over
 
         if (_deck.Track is null)
         {
@@ -363,11 +424,12 @@ public sealed partial class DeckViewModel : ViewModelBase
         Refresh();
     }
 
+    // Both also drop a play still waiting for its file: it must not start after this press.
     [RelayCommand]
-    private void Pause() { _deck.Pause(); Refresh(); }
+    private void Pause() { _playRequest++; _deck.Pause(); Refresh(); }
 
     [RelayCommand]
-    private void Stop() { _deck.Stop(); Refresh(); }
+    private void Stop() { _playRequest++; _deck.Stop(); Refresh(); }
 
     [RelayCommand]
     private void ToggleMute() => IsMuted = !IsMuted;
@@ -450,12 +512,22 @@ public sealed partial class DeckViewModel : ViewModelBase
         return next;
     }
 
-    private void PrefetchNext() => _analysis.Prefetch(PeekNext());
+    internal void PrefetchNext()
+    {
+        Track? next = PeekNext();
+        _analysis.Prefetch(next);
+        // So the auto-cue's synchronous Load, on the UI timer, finds the file already open.
+        if (next is not null) _ = PrepareQuietlyAsync(next);
+    }
 
     partial void OnShuffleChanged(bool value) { _nextUp = null; PrefetchNext(); }
 
     private async void PlayNextFromPlaylist()
     {
+        // The user's load takes the deck and any Play waiting on it goes ahead with it; the
+        // queue keeps its next track, and the end has already been reported as played.
+        if (!_loading.IsCompleted) return;
+
         // Runs from the track-ended event: anything escaping an async void here
         // would end the process mid-set.
         try { await PlayNextAsync(); }
@@ -470,10 +542,13 @@ public sealed partial class DeckViewModel : ViewModelBase
     /// <returns>True when something is now playing.</returns>
     public async Task<bool> PlayNextAsync()
     {
+        int play = ++_playRequest;
         for (int attempts = Playlist.Count; attempts > 0; attempts--)
         {
             if (DequeueNext() is not { } next) return false;
-            if (!await LoadAsync(next)) continue;
+            LoadOutcome outcome = await LoadForPlaybackAsync(next);
+            if (outcome == LoadOutcome.Superseded || play != _playRequest) return false;
+            if (outcome == LoadOutcome.Failed) continue;
             _deck.Play();
             return true;
         }

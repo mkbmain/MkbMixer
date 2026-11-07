@@ -24,6 +24,43 @@ public sealed class FakeDeck(DeckId id) : IDeck
     /// <summary>Paths that fail to open, as a moved or corrupt file would.</summary>
     public HashSet<string> Unloadable { get; } = [];
 
+    /// <summary>Every path asked for, in order, repeats included.</summary>
+    public List<string> PreparedPaths { get; } = [];
+
+    /// <summary>Paths whose preparation faults, as a moved or corrupt file would.</summary>
+    public HashSet<string> Unpreparable { get; } = [];
+
+    /// <summary>Paths whose preparation throws before returning a task at all.</summary>
+    public HashSet<string> PrepareThrows { get; } = [];
+
+    private readonly Dictionary<string, TaskCompletionSource> _heldPreparations = [];
+
+    /// <summary>Keeps preparations of this path running until <see cref="ReleasePreparation"/>, as a slow disk would.</summary>
+    public void HoldPreparation(string path) =>
+        _heldPreparations[path] = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    public void ReleasePreparation(string path)
+    {
+        _heldPreparations[path].SetResult();
+        _heldPreparations.Remove(path);
+    }
+
+    public Task PrepareAsync(Track track, CancellationToken ct = default)
+    {
+        PreparedPaths.Add(track.Path);
+        if (PrepareThrows.Contains(track.Path))
+            throw new IOException($"Could not prepare '{track.Path}'.");
+        if (Unpreparable.Contains(track.Path))
+            return Task.FromException(new IOException($"Could not prepare '{track.Path}'."));
+        return _heldPreparations.TryGetValue(track.Path, out TaskCompletionSource? held)
+            ? held.Task
+            : Task.CompletedTask;
+    }
+
+    public int ReleasePreparedCount { get; private set; }
+
+    public void ReleasePrepared() => ReleasePreparedCount++;
+
     public void Load(Track track)
     {
         LoadCount++;
