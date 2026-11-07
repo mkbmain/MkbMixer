@@ -46,8 +46,9 @@ public interface IDeck : IDisposable
     /// then opens the file itself and throws the real error. Cancelling only stops the
     /// caller waiting; an open cannot be interrupted, and what it opens stays prepared
     /// until <see cref="RetainPrepared"/> or <see cref="ReleasePrepared"/> lets it go, or
-    /// newer preparations push it out. If the file has since changed or gone,
-    /// <see cref="Load"/> opens it afresh instead.
+    /// newer preparations push it out. If the file has since changed, gone, or stopped
+    /// reading, <see cref="Load"/> opens it afresh instead; that check is best effort for
+    /// pulled media, as the OS can still answer from its cache.
     /// </summary>
     Task PrepareAsync(Track track, CancellationToken ct = default);
 

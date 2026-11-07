@@ -1,3 +1,4 @@
+using Microsoft.Win32.SafeHandles;
 using SoundFlow.Structs;
 using SoundFlow.Backends.MiniAudio;
 using SoundFlow.Components;
@@ -118,6 +119,12 @@ internal sealed class SoundFlowDeck : IDeck
 
     internal TimeStretchProvider? LoadedProvider => _provider;
 
+    /// <summary>Kills a prepared chain's descriptor behind its stream's back, as pulled media does.</summary>
+    internal void ClosePreparedHandle(string path)
+    {
+        lock (_gate) _prepared.Find(p => p.Path == path)?.Chain?.Handle.Dispose();
+    }
+
     public Task PrepareAsync(Track track, CancellationToken ct = default)
     {
         if (_engine is null) return Task.CompletedTask;
@@ -210,10 +217,19 @@ internal sealed class SoundFlowDeck : IDeck
         OpeningHook?.Invoke(path);
         // Before the open, so a file changed in between mismatches rather than passes.
         (long Size, DateTime WriteUtc)? stamp = Stat(path);
-        Stream stream = File.OpenRead(path);
+        // Our own handle rather than the stream's: asking a FileStream for its handle makes it
+        // sync its buffer and file position, and by then a decoder has been reading through it.
+        SafeFileHandle handle = File.OpenHandle(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+        Stream stream;
+        try { stream = new FileStream(handle, FileAccess.Read); }
+        catch
+        {
+            handle.Dispose();
+            throw;
+        }
         try
         {
-            return new Chain(stream, new TimeStretchProvider(
+            return new Chain(handle, stream, new TimeStretchProvider(
                 new StreamDataProvider(_engine!, _format, stream),
                 _format.Channels), stamp);
         }
@@ -275,15 +291,36 @@ internal sealed class SoundFlowDeck : IDeck
     {
         if (_prepared.Find(p => p.Path == path && p.Chain is not null) is not { } prepared) return null;
         // On pulled media the descriptor is dead: reads fail, which the decoder reports as
-        // the end of the track, so a stale chain would "load" and then play nothing. The
-        // open that replaces it throws the real error, or finds the new content.
-        if (Stat(path) is not { } now || now != prepared.Chain!.Stamp)
+        // the end of the track, so a stale chain would "load" and then play nothing. Media
+        // that came back stats the same, so the descriptor has to be read as well. The open
+        // that replaces it throws the real error, or finds the new content.
+        if (Stat(path) is not { } now || now != prepared.Chain!.Stamp || !DescriptorReads(prepared.Chain.Handle))
         {
             Discard(prepared);
             return null;
         }
         _prepared.Remove(prepared);
         return prepared.Chain;
+    }
+
+    /// <summary>
+    /// Whether a read through this descriptor still works. Goes round the stream's buffer and
+    /// leaves its position alone. Mid-file to miss that buffer, but this is best effort: opening
+    /// scans the whole file, so on Linux and Android a pass served from the page cache may be
+    /// the usual case rather than the rare one, and then a chain that cannot play passes.
+    /// </summary>
+    internal static bool DescriptorReads(SafeFileHandle handle)
+    {
+        Span<byte> probe = stackalloc byte[1];
+        try
+        {
+            RandomAccess.Read(handle, probe, RandomAccess.GetLength(handle) / 2);
+            return true;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or ObjectDisposedException)
+        {
+            return false;
+        }
     }
 
     /// <summary>Null when the file is gone or cannot be examined.</summary>
@@ -355,8 +392,9 @@ internal sealed class SoundFlowDeck : IDeck
     }
 
     /// <summary>A stream and the provider chain reading it, not yet given to a player.</summary>
+    /// <param name="Handle">What <see cref="Stream"/> reads through and owns, kept to probe it directly.</param>
     /// <param name="Stamp">The file's size and write time when it was opened.</param>
-    private sealed record Chain(Stream Stream, TimeStretchProvider Provider, (long Size, DateTime WriteUtc)? Stamp)
+    private sealed record Chain(SafeFileHandle Handle, Stream Stream, TimeStretchProvider Provider, (long Size, DateTime WriteUtc)? Stamp)
     {
         /// <summary>Runs on paths that have nowhere to report a failure, and the file is lost either way.</summary>
         public void TryDispose()

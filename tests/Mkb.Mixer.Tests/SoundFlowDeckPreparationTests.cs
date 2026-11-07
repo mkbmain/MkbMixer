@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using Microsoft.Win32.SafeHandles;
 using Mkb.Mixer.App.ViewModels;
 using Mkb.Mixer.Audio;
 
@@ -572,6 +573,39 @@ public class SoundFlowDeckPreparationTests : IDisposable
     }
 
     [Fact]
+    public async Task ADeadDescriptorIsNotReusedAndTheLoadOpensAfresh()
+    {
+        // Same size and write time, so only reading through the descriptor can tell.
+        RequireAudioContext();
+        Track a = Tone("a");
+        await _deck.PrepareAsync(a, Ct).WaitAsync(Timeout, Ct);
+        _deck.ClosePreparedHandle(a.Path);
+
+        _deck.Load(a);
+
+        Assert.Equal([a.Path, a.Path], Opens);
+        AssertUsable(a, 1f);
+        Assert.Empty(_deck.PreparedPaths);
+    }
+
+    [Fact]
+    public async Task ADeadDescriptorWithTheFileNowUnopenableReportsTheRealError()
+    {
+        RequireAudioContext();
+        Track a = Tone("a");
+        await _deck.PrepareAsync(a, Ct).WaitAsync(Timeout, Ct);
+        _deck.ClosePreparedHandle(a.Path);
+        // The stat still passes and the open does not, as on media that came back half-working.
+        _deck.OpeningHook = _ => throw new IOException("the drive is not ready");
+
+        IOException thrown = Assert.Throws<IOException>(() => _deck.Load(a));
+
+        Assert.Equal("the drive is not ready", thrown.Message);
+        Assert.Null(_deck.Track);
+        Assert.Empty(_deck.PreparedPaths);
+    }
+
+    [Fact]
     public async Task ALoadStartedBeforeTheNextTickKeepsItsOpenThroughAQueueEdit()
     {
         // Losing it would make the load open the file on the UI thread, inside the gate.
@@ -624,6 +658,56 @@ public class SoundFlowDeckPreparationTests : IDisposable
         await opening.WaitAsync(Timeout, Ct);
         Assert.True(clock.Elapsed.TotalSeconds >= 1.9, $"Dispose returned after {clock.Elapsed.TotalSeconds:0.00}s");
         Assert.False(IsHeld(a));
+    }
+
+    private string Bytes(string name, int length)
+    {
+        string path = Path.Combine(_dir, name);
+        var content = new byte[length];
+        for (int i = 0; i < length; i++) content[i] = (byte)(i % 251);
+        File.WriteAllBytes(path, content);
+        return path;
+    }
+
+    [Fact]
+    public void TheProbePassesALiveDescriptorAndAnEmptyFile()
+    {
+        using SafeFileHandle live = File.OpenHandle(Bytes("live", 1000));
+        using SafeFileHandle empty = File.OpenHandle(Bytes("empty", 0));
+
+        Assert.True(SoundFlowDeck.DescriptorReads(live));
+        Assert.True(SoundFlowDeck.DescriptorReads(empty));
+    }
+
+    [Fact]
+    public void TheProbeFailsAClosedDescriptor()
+    {
+        SafeFileHandle closed = File.OpenHandle(Bytes("closed", 1000));
+        closed.Dispose();
+
+        Assert.False(SoundFlowDeck.DescriptorReads(closed));
+    }
+
+    [Fact]
+    public void TheProbeFailsADescriptorWhoseReadsFail()
+    {
+        // The handle is open and the read is refused, which surfaces as UnauthorizedAccessException.
+        using SafeFileHandle unreadable = File.OpenHandle(
+            Bytes("unreadable", 1000), FileMode.Open, FileAccess.Write, FileShare.ReadWrite);
+
+        Assert.False(SoundFlowDeck.DescriptorReads(unreadable));
+    }
+
+    [Fact]
+    public void TheProbeFailsADescriptorThatGivesAnIoError()
+    {
+        // What a dead device gives. /proc/self/mem is size 0, so the probe reads address 0,
+        // which is never mapped, and the kernel answers EIO.
+        if (!OperatingSystem.IsLinux()) Assert.Skip("needs /proc/self/mem");
+        using SafeFileHandle dead = File.OpenHandle("/proc/self/mem");
+        Assert.Throws<IOException>(() => RandomAccess.Read(dead, new byte[1], 0));   // or this proves nothing
+
+        Assert.False(SoundFlowDeck.DescriptorReads(dead));
     }
 
     [Fact]
