@@ -18,15 +18,71 @@ public sealed class FakeDeck(DeckId id) : IDeck
     public int LoadCount { get; private set; }
     public int PlayCount { get; private set; }
 
+    /// <summary>How many paths had been prepared when Load last ran, to pin prepare-next before load.</summary>
+    public int PreparedCountAtLoad { get; private set; }
+
     /// <summary>Test helper: position the playhead so this much time is left.</summary>
     public void SetRemaining(TimeSpan remaining) => Position = Duration - remaining;
 
     /// <summary>Paths that fail to open, as a moved or corrupt file would.</summary>
     public HashSet<string> Unloadable { get; } = [];
 
+    /// <summary>Every path asked for, in order, repeats included.</summary>
+    public List<string> PreparedPaths { get; } = [];
+
+    /// <summary>Paths whose preparation faults, as a moved or corrupt file would.</summary>
+    public HashSet<string> Unpreparable { get; } = [];
+
+    /// <summary>Paths whose preparation throws before returning a task at all.</summary>
+    public HashSet<string> PrepareThrows { get; } = [];
+
+    private readonly Dictionary<string, TaskCompletionSource> _heldPreparations = [];
+
+    /// <summary>Keeps preparations of this path running until <see cref="ReleasePreparation"/>, as a slow disk would.</summary>
+    public void HoldPreparation(string path) =>
+        _heldPreparations[path] = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    public void ReleasePreparation(string path)
+    {
+        _heldPreparations[path].SetResult();
+        _heldPreparations.Remove(path);
+    }
+
+    public Task PrepareAsync(Track track, CancellationToken ct = default)
+    {
+        PreparedPaths.Add(track.Path);
+        if (PrepareThrows.Contains(track.Path))
+            throw new IOException($"Could not prepare '{track.Path}'.");
+        if (Unpreparable.Contains(track.Path))
+            return Task.FromException(new IOException($"Could not prepare '{track.Path}'."));
+        return _heldPreparations.TryGetValue(track.Path, out TaskCompletionSource? held)
+            ? held.Task
+            : Task.CompletedTask;
+    }
+
+    public int ReleasePreparedCount { get; private set; }
+
+    public void ReleasePrepared() => ReleasePreparedCount++;
+
+    /// <summary>What the deck was last told to keep open, sorted; null until it first is.</summary>
+    public string[] Retained { get; private set; } = null!;
+
+    /// <summary>What was retained when Load last ran: the real deck opens anything else on the calling thread.</summary>
+    public string[] RetainedAtLoad { get; private set; } = null!;
+
+    public int RetainCount { get; private set; }
+
+    public void RetainPrepared(IReadOnlyCollection<string> paths)
+    {
+        RetainCount++;
+        Retained = paths.Order().ToArray();
+    }
+
     public void Load(Track track)
     {
         LoadCount++;
+        PreparedCountAtLoad = PreparedPaths.Count;
+        RetainedAtLoad = Retained;
         if (Unloadable.Contains(track.Path))
         {
             Track = null;

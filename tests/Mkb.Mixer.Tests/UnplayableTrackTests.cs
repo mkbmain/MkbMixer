@@ -37,6 +37,25 @@ public class UnplayableTrackTests
     }
 
     [Fact]
+    public async Task AFailedLoadStopsThePreviousTracksWaveformLanding()
+    {
+        Track earlier = T("earlier"), missing = T("missing");
+        var engine = new FakeAudioEngine();
+        engine.Held.Add(earlier.Path);
+        var deck = new DeckViewModel(engine.A, engine);
+        engine.A.Unloadable.Add(missing.Path);
+        CancellationToken ct = TestContext.Current.CancellationToken;
+
+        Task<bool> first = deck.LoadAsync(earlier);
+        Assert.True(SpinWait.SpinUntil(() => engine.AnalysedPaths.Count > 0, TimeSpan.FromSeconds(5)));
+        Assert.False(await deck.LoadAsync(missing).WaitAsync(TimeSpan.FromSeconds(5), ct));
+        engine.ReleaseHeld();
+        await first.WaitAsync(TimeSpan.FromSeconds(5), ct);
+
+        Assert.Same(Waveform.Empty, deck.Waveform);
+    }
+
+    [Fact]
     public async Task PlayReportsWhyTheTopTrackWouldNotOpen()
     {
         Track missing = T("missing");
@@ -292,11 +311,41 @@ public class ShutdownAndPersistenceTests : IDisposable
         engine.Blocking.Add("/m/long.mp3");
         var queue = new AnalysisQueue(engine, TrackStore.InMemory(), post: a => a());
         Task<TrackAnalysis> analysis = queue.AnalyseForDeckAsync(new Track("/m/long.mp3", "Long"), TestContext.Current.CancellationToken);
+        // The stat before the decode now runs on the pool, so the decode starts a moment later.
+        SpinWait.SpinUntil(() => engine.AnalysedPaths.Count > 0, TimeSpan.FromSeconds(5));
 
         queue.Dispose();
 
         Assert.True(engine.BlockingAnalysisStopped);
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => analysis);
+    }
+
+    [Fact]
+    public void DisposeOnABlockedUiThreadWaitsOnlyForTheDecodeToStop()
+    {
+        // Started on the UI thread, which Dispose then blocks: nothing the analysis
+        // itself needs may be posted back to it, or quitting stalls for the full timeout.
+        var engine = new FakeAudioEngine();
+        engine.Blocking.Add("/m/long.mp3");
+        var queue = new AnalysisQueue(engine, TrackStore.InMemory(), post: a => a());
+        SynchronizationContext? before = SynchronizationContext.Current;
+        SynchronizationContext.SetSynchronizationContext(new SoundFlowDeckPreparationTests.NeverPumps());
+        try
+        {
+            _ = queue.AnalyseForDeckAsync(new Track("/m/long.mp3", "Long"), TestContext.Current.CancellationToken);
+            // The stat before the decode runs on the pool. Disposing before the decode starts
+            // would cancel one that never began, which proves nothing about the wait.
+            Assert.True(SpinWait.SpinUntil(() => engine.AnalysedPaths.Count > 0, TimeSpan.FromSeconds(5)),
+                "the decode never started");
+
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            queue.Dispose();
+            clock.Stop();
+
+            Assert.True(clock.Elapsed < AnalysisQueue.DisposeTimeout * 0.75, $"took {clock.Elapsed}");
+            Assert.True(engine.BlockingAnalysisStopped);
+        }
+        finally { SynchronizationContext.SetSynchronizationContext(before); }
     }
 
     [Fact]
