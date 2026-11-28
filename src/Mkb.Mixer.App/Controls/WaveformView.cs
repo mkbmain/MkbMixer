@@ -201,14 +201,18 @@ public sealed class WaveformView : Control
     {
         base.OnDetachedFromVisualTree(e);
         DisposeBars();
+        Array.Clear(_cueLabels);
     }
 
     // Made once for the first eight cues; any beyond that are rare enough to make per frame.
-    private static readonly FormattedText?[] CueLabels = new FormattedText?[8];
+    // The labels are per view and dropped on detach: since Avalonia 12.2 drawing a
+    // FormattedText reshapes it through HarfBuzz, and a static label shared between
+    // views segfaulted inside hb_shape_full.
+    private readonly FormattedText?[] _cueLabels = new FormattedText?[8];
     private static readonly IPen?[] CuePens = new IPen?[8];
 
-    private static FormattedText CueLabel(int i) =>
-        i < CueLabels.Length ? CueLabels[i] ??= NewCueLabel(i) : NewCueLabel(i);
+    private FormattedText CueLabel(int i) =>
+        i < _cueLabels.Length ? _cueLabels[i] ??= NewCueLabel(i) : NewCueLabel(i);
 
     private static FormattedText NewCueLabel(int i) =>
         new((i + 1).ToString(CultureInfo.InvariantCulture),
