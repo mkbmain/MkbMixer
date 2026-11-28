@@ -19,6 +19,7 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
     private readonly SettingsStore _settingsStore;
     private readonly AppSettings _settings;
     private readonly TrackStore _tracks;
+    private readonly WaveformCache? _waveforms;
     private readonly AutoCue _autoCue;
     private DispatcherTimer? _timer;
     private readonly Stopwatch _clock = Stopwatch.StartNew();
@@ -30,7 +31,8 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
     public LibraryViewModel Library { get; }
 
     public MainViewModel() : this(new SoundFlowAudioEngine(), SettingsStore.Default(), TrackStore.Default(),
-        post: a => Dispatcher.UIThread.Post(a)) { }
+        post: a => Dispatcher.UIThread.Post(a), searchDebounce: TimeSpan.FromMilliseconds(150),
+        waveforms: WaveformCache.Default()) { }
 
     /// <summary>Remembers nothing per track between runs. For tests.</summary>
     public MainViewModel(IAudioEngine engine, SettingsStore settingsStore)
@@ -39,7 +41,8 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
     /// <param name="post">How analysis results reach the UI thread; see <see cref="AnalysisQueue"/>.</param>
     /// <param name="manualAnalysis">No background worker; tests drive <see cref="Analysis"/> themselves.</param>
     public MainViewModel(IAudioEngine engine, SettingsStore settingsStore, TrackStore tracks,
-                         Action<Action>? post = null, bool manualAnalysis = false)
+                         Action<Action>? post = null, bool manualAnalysis = false,
+                         TimeSpan searchDebounce = default, WaveformCache? waveforms = null)
     {
         _engine = engine;
         _settingsStore = settingsStore;
@@ -48,9 +51,10 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
         ShortcutEditor = new ShortcutEditorViewModel(Shortcuts);
         ShortcutKeys = new ShortcutRouter(this);
         _tracks = tracks;
-        Analysis = new AnalysisQueue(engine, tracks, post, manualAnalysis);
+        _waveforms = waveforms;
+        Analysis = new AnalysisQueue(engine, tracks, post, manualAnalysis, waveforms);
         Library = new LibraryViewModel(tracks, Analysis, () => AudibleDeck().HeardBpm, _settings.LastFolder,
-            analyseBpm: _settings.AnalyseLibraryBpm ?? !App.UsePhoneLayout);
+            analyseBpm: _settings.AnalyseLibraryBpm ?? !App.UsePhoneLayout, searchDebounce: searchDebounce);
         Library.Status += (_, message) => StatusMessage = message;
 
         DeckA = new DeckViewModel(engine.DeckA, engine, analysis: Analysis);
@@ -484,7 +488,26 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
     public void ForgetDeletedTracks()
     {
         if (Interlocked.Exchange(ref _forgetStarted, 1) != 0) return;
-        _ = Task.Run(_tracks.ForgetMissing);
+        _ = Task.Run(() => _tracks.ForgetMissing(_waveforms is null ? null : _waveforms.Forget));
+    }
+
+    /// <summary>
+    /// Storage came or went. Going, files opened ahead of time are closed, because they
+    /// would keep the volume from unmounting. Coming, or access being granted, the next
+    /// tracks are prepared again, since their earlier attempts will have failed.
+    /// </summary>
+    public void StorageChanged(bool available)
+    {
+        if (available)
+        {
+            DeckA.PrefetchNext();
+            DeckB.PrefetchNext();
+        }
+        else
+        {
+            _engine.DeckA.ReleasePrepared();
+            _engine.DeckB.ReleasePrepared();
+        }
     }
 
     /// <summary>

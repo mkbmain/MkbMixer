@@ -87,8 +87,8 @@ public class UiSmokeTests
         engine.Analyses[a.Path] = FakeAudioEngine.Analysis(136);
         engine.Analyses[b.Path] = FakeAudioEngine.Analysis(122);
 
-        vm.DeckA.LoadAsync(a).Wait();
-        vm.DeckB.LoadAsync(b).Wait();
+        AvaloniaTest.PumpUntil(vm.DeckA.LoadAsync(a));
+        AvaloniaTest.PumpUntil(vm.DeckB.LoadAsync(b));
         engine.A.Position = TimeSpan.FromSeconds(30);
         vm.DeckA.HotCueCommand.Execute(vm.DeckA.HotCues[0]);
         engine.A.Position = TimeSpan.FromSeconds(150);

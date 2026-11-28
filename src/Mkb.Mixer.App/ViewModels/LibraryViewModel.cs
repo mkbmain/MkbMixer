@@ -8,6 +8,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Mkb.Mixer.App.Services;
 using Mkb.Mixer.Audio;
+using Avalonia.Threading;
 using Mkb.Mixer.Library;
 
 namespace Mkb.Mixer.App.ViewModels;
@@ -20,14 +21,18 @@ public sealed partial class LibraryViewModel : ViewModelBase, IDisposable
     private readonly Func<double?> _audibleBpm;
     private readonly Func<string, Track> _readTrack;
     private CancellationTokenSource? _scan;
+    private readonly TimeSpan _searchDebounce;
+    private DispatcherTimer? _searchTimer;
 
     /// <param name="audibleBpm">The BPM the room is hearing, for the ≈ button.</param>
     /// <param name="lastFolder">Where the browser opens; the user's music folder when null.</param>
     /// <param name="readTrack">Reads a file's tags. Injectable so tests can hold a read open.</param>
+    /// <param name="searchDebounce">Quiet time after typing before the list filters; zero filters at once.</param>
     public LibraryViewModel(TrackStore tracks, AnalysisQueue analysis, Func<double?> audibleBpm,
                             string? lastFolder = null, bool analyseBpm = false,
-                            Func<string, Track>? readTrack = null)
+                            Func<string, Track>? readTrack = null, TimeSpan searchDebounce = default)
     {
+        _searchDebounce = searchDebounce;
         _readTrack = readTrack ?? TrackMetadataReader.Read;
         _tracks = tracks;
         _analysis = analysis;
@@ -46,7 +51,7 @@ public sealed partial class LibraryViewModel : ViewModelBase, IDisposable
     public ObservableCollection<FolderNode> Roots { get; } = [];
 
     /// <summary>Audio files found in the selected folder, filtered by the search box.</summary>
-    public ObservableCollection<LibraryRow> BrowserRows { get; } = [];
+    public ReplaceableCollection<LibraryRow> BrowserRows { get; } = [];
 
     [ObservableProperty] private FolderNode? _selectedFolder;
     [ObservableProperty] private LibraryRow? _selectedBrowserRow;
@@ -70,7 +75,24 @@ public sealed partial class LibraryViewModel : ViewModelBase, IDisposable
             _ = LoadFolderAsync(value.Path);
     }
 
-    partial void OnSearchTextChanged(string value) => ApplyFilter();
+    partial void OnSearchTextChanged(string value)
+    {
+        if (_searchDebounce <= TimeSpan.Zero) { ApplyFilter(); return; }
+
+        // Created here, not in the constructor: view models are built off the UI
+        // thread in tests, and a DispatcherTimer binds to the thread that makes it.
+        _searchTimer ??= new DispatcherTimer { Interval = _searchDebounce };
+        _searchTimer.Tick -= OnSearchTimer;
+        _searchTimer.Tick += OnSearchTimer;
+        _searchTimer.Stop();
+        _searchTimer.Start();
+    }
+
+    private void OnSearchTimer(object? sender, EventArgs e)
+    {
+        _searchTimer?.Stop();
+        ApplyFilter();
+    }
 
     /// <summary>
     /// Shared storage on Android: what the user sees as "Internal storage". The
@@ -242,6 +264,8 @@ public sealed partial class LibraryViewModel : ViewModelBase, IDisposable
     [RelayCommand]
     private async Task SearchAsync()
     {
+        // The command acts on the text as it is now; a pending filter would only repeat it.
+        _searchTimer?.Stop();
         if (string.IsNullOrWhiteSpace(SearchText)) { ApplyFilter(); return; }
         if (!Directory.Exists(CurrentFolder)) return;
 
@@ -278,9 +302,12 @@ public sealed partial class LibraryViewModel : ViewModelBase, IDisposable
 
     private void ApplyFilter()
     {
-        BrowserRows.Clear();
-        foreach (LibraryRow row in _folderRows.Where(Matches))
-            BrowserRows.Add(row);
+        LibraryRow? selected = SelectedBrowserRow;
+        List<LibraryRow> rows = _folderRows.Where(Matches).ToList();
+        BrowserRows.ReplaceAll(rows);
+        // The bound grid drops its selection on a Reset, pushing null back; put
+        // the row back if it still matches, and clear it if it does not.
+        SelectedBrowserRow = selected is not null && rows.Contains(selected) ? selected : null;
     }
 
     private bool Matches(LibraryRow row) =>
@@ -342,5 +369,9 @@ public sealed partial class LibraryViewModel : ViewModelBase, IDisposable
         }
     }
 
-    public void Dispose() => _scan?.Cancel();
+    public void Dispose()
+    {
+        _scan?.Cancel();
+        _searchTimer?.Stop();
+    }
 }

@@ -75,9 +75,23 @@ public sealed class FakeAudioEngine : IAudioEngine
     /// <summary>Set once a blocking analysis has noticed its cancellation and stopped.</summary>
     public bool BlockingAnalysisStopped { get; private set; }
 
+    private readonly TaskCompletionSource _release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    /// <summary>Paths whose analysis waits for <see cref="ReleaseHeld"/>, as a slow decode would, then completes normally.</summary>
+    public HashSet<string> Held { get; } = [];
+
+    /// <summary>Lets every held analysis finish.</summary>
+    public void ReleaseHeld() => _release.TrySetResult();
+
     public Task<TrackAnalysis> AnalyseAsync(string path, CancellationToken ct = default)
     {
         lock (AnalysedPaths) AnalysedPaths.Add(path);
+        if (Held.Contains(path))
+            return Task.Run(async () =>
+            {
+                await _release.Task.WaitAsync(ct);
+                return Analyses.TryGetValue(path, out TrackAnalysis? a) ? a : Analysis();
+            }, CancellationToken.None);
         if (Blocking.Contains(path))
             return Task.Run(async () =>
             {

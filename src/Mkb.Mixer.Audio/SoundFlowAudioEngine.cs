@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Linq;
 using SoundFlow.Abstracts;
 using SoundFlow.Abstracts.Devices;
@@ -439,6 +440,16 @@ public sealed class SoundFlowAudioEngine : IAudioEngine
         Task.Run(() =>
         {
             if (_engine is null) return TrackAnalysis.Empty;
+
+            // Analysis is background work; at normal priority a long decode competes
+            // with the audio and UI threads for cores. The thread belongs to the pool,
+            // so the priority is put back.
+            Thread thread = Thread.CurrentThread;
+            ThreadPriority original = thread.Priority;
+            try { thread.Priority = ThreadPriority.BelowNormal; }
+            catch { /* a platform that rejects it just analyses at normal priority */ }
+
+            float[]? buffer = null;
             try
             {
                 using var stream = File.OpenRead(path);
@@ -446,13 +457,15 @@ public sealed class SoundFlowAudioEngine : IAudioEngine
 
                 // Fed chunk by chunk: holding the whole decode costs ~21 MB a minute.
                 var analyser = new TrackAnalyser(Format.Channels, Format.SampleRate, provider.Length);
-                var buffer = new float[16384];
+                // The pool may hand back a larger array; slice so reads stay 16384 floats.
+                buffer = ArrayPool<float>.Shared.Rent(16384);
+                Span<float> chunk = buffer.AsSpan(0, 16384);
                 while (true)
                 {
                     ct.ThrowIfCancellationRequested();
-                    int read = provider.ReadBytes(buffer);
+                    int read = provider.ReadBytes(chunk);
                     if (read <= 0) break;
-                    analyser.Add(buffer.AsSpan(0, read));
+                    analyser.Add(chunk[..read]);
                 }
 
                 return analyser.Finish();
@@ -461,6 +474,12 @@ public sealed class SoundFlowAudioEngine : IAudioEngine
             catch
             {
                 return TrackAnalysis.Empty;
+            }
+            finally
+            {
+                if (buffer is not null) ArrayPool<float>.Shared.Return(buffer);
+                try { thread.Priority = original; }
+                catch { /* nothing to restore if it could not be set */ }
             }
         }, ct);
 

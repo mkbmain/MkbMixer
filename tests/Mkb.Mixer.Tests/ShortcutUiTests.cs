@@ -20,7 +20,7 @@ public class ShortcutUiTests
         var engine = new FakeAudioEngine();
         var vm = new MainViewModel(engine, new SettingsStore(
             Path.Combine(Path.GetTempPath(), $"mkb-ui-{Guid.NewGuid():N}.json")));
-        vm.DeckA.LoadAsync(new Track("/m/a.mp3", "A", Duration: TimeSpan.FromMinutes(3))).Wait();
+        AvaloniaTest.PumpUntil(vm.DeckA.LoadAsync(new Track("/m/a.mp3", "A", Duration: TimeSpan.FromMinutes(3))));
         Window window = phone
             ? new Window { Content = new PhoneView { DataContext = vm }, Width = 400, Height = 800 }
             : new MainWindow { DataContext = vm, Width = 1400, Height = 900 };

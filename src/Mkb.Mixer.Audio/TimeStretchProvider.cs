@@ -39,6 +39,9 @@ internal sealed class TimeStretchProvider : ISoundDataProvider
 
     private readonly ISoundDataProvider _source;
     private readonly int _channels;
+    // Held by anything that touches the decoder or the buffers below. The audio thread
+    // (ReadBytes) only ever TryEnters it: Seek and Dispose hold it across slow decoder
+    // calls, and a read that waited would stall every deck in the mixer's callback.
     private readonly Lock _gate = new();
     private readonly float[] _fadeIn = new float[Hop];
 
@@ -106,11 +109,18 @@ internal sealed class TimeStretchProvider : ISoundDataProvider
 
     public int ReadBytes(Span<float> buffer)
     {
-        lock (_gate)
+        int wanted = buffer.Length - buffer.Length % _channels;
+        // Never wait here. A seek or dispose in progress costs this deck one block of
+        // silence; returning 0 instead would read as the end of the track.
+        if (!_gate.TryEnter())
+        {
+            buffer[..wanted].Clear();
+            return wanted;
+        }
+        try
         {
             if (IsDisposed) return 0;
             int written = 0;
-            int wanted = buffer.Length - buffer.Length % _channels;
             while (written < wanted)
             {
                 if (_outRead == _outFrames)
@@ -127,6 +137,7 @@ internal sealed class TimeStretchProvider : ISoundDataProvider
             _position = (_outSourceFrame + _outRead) * _channels;
             return written;
         }
+        finally { _gate.Exit(); }
     }
 
     public void Seek(int offset)
@@ -280,10 +291,12 @@ internal sealed class TimeStretchProvider : ISoundDataProvider
     }
 
     /// <summary>
-    /// Waits for a read in progress. SoundFlow's mixer works from a snapshot of its
-    /// players, so removing one does not stop a callback already running it. SoundFlow's
-    /// decoder (1.4.1) already guards its own reads against its disposal; this lock keeps
-    /// the stretcher from relying on that, and from touching its source once disposed.
+    /// Waits for a read in progress, which is fine off the audio thread; a read that
+    /// arrives meanwhile gets silence rather than waiting. SoundFlow's mixer works from
+    /// a snapshot of its players, so removing one does not stop a callback already
+    /// running it. SoundFlow's decoder (1.4.1) already guards its own reads against its
+    /// disposal; this lock keeps the stretcher from relying on that, and from touching
+    /// its source once disposed.
     /// </summary>
     public void Dispose()
     {

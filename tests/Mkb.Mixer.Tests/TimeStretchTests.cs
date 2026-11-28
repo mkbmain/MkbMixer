@@ -150,6 +150,85 @@ public class TimeStretchDisposeTests
         public void Seek(int offset) => _inner.Seek(offset);
     }
 
+    /// <summary>A source whose seek blocks until released.</summary>
+    private sealed class SlowSeekSource(float[] data) : SoundFlow.Interfaces.ISoundDataProvider
+    {
+        private readonly RawDataProvider _inner = new(data);
+        public readonly ManualResetEventSlim Seeking = new();
+        public readonly ManualResetEventSlim Release = new();
+
+        public void Seek(int offset)
+        {
+            Seeking.Set();
+            Release.Wait(TimeSpan.FromSeconds(10));
+            _inner.Seek(offset);
+        }
+
+        public int ReadBytes(Span<float> buffer) => _inner.ReadBytes(buffer);
+        public void Dispose() { }
+        public int Position => _inner.Position;
+        public int Length => _inner.Length;
+        public bool CanSeek => true;
+        public SoundFlow.Enums.SampleFormat SampleFormat => _inner.SampleFormat;
+        public int SampleRate => 44100;
+        public bool IsDisposed => false;
+        public SoundFlow.Metadata.Models.SoundFormatInfo? FormatInfo => null;
+        public event EventHandler<EventArgs>? EndOfStreamReached { add { } remove { } }
+        public event EventHandler<SoundFlow.Interfaces.PositionChangedEventArgs>? PositionChanged { add { } remove { } }
+    }
+
+    [Fact]
+    public async Task AReadDuringASeekReturnsSilenceInsteadOfWaiting()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var data = new float[44100 * 2];
+        Array.Fill(data, 0.5f);
+        var source = new SlowSeekSource(data);
+        var p = new TimeStretchProvider(source, 2);
+
+        var seek = Task.Run(() => p.Seek(0), ct);
+        Assert.True(source.Seeking.Wait(TimeSpan.FromSeconds(5), ct));
+
+        var buf = new float[1024];
+        Array.Fill(buf, 1f);
+        var read = Task.Run(() => p.ReadBytes(buf), ct);
+        Task first = await Task.WhenAny(read, Task.Delay(TimeSpan.FromSeconds(2), ct));
+        Assert.True(first == read, "the audio thread waited for the seek");
+        Assert.Equal(buf.Length, await read);
+        Assert.All(buf, v => Assert.Equal(0f, v));
+
+        source.Release.Set();
+        await seek.WaitAsync(TimeSpan.FromSeconds(5), ct);
+
+        Assert.Equal(buf.Length, p.ReadBytes(buf));
+        Assert.Contains(buf, v => v != 0f);
+    }
+
+    [Fact]
+    public async Task AReadDuringDisposeReturnsSilenceAndOneAfterReturnsNothing()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var source = new SlowSource(new float[44100 * 2]);
+        var p = new TimeStretchProvider(source, 2);
+        var firstRead = Task.Run(() => p.ReadBytes(new float[1024]), ct);
+        Assert.True(source.Reading.Wait(TimeSpan.FromSeconds(5), ct));
+        var dispose = Task.Run(p.Dispose, ct);
+        await Task.Delay(100, ct);
+
+        var buf = new float[1024];
+        Array.Fill(buf, 1f);
+        var read = Task.Run(() => p.ReadBytes(buf), ct);
+        bool prompt = await Task.WhenAny(read, Task.Delay(TimeSpan.FromSeconds(2), ct)) == read;
+        source.Release.Set();   // before asserting, so a failure cannot leave the first read blocked
+        Assert.True(prompt, "a read waited for Dispose");
+        Assert.Equal(buf.Length, await read);
+        Assert.All(buf, v => Assert.Equal(0f, v));
+
+        await dispose.WaitAsync(TimeSpan.FromSeconds(5), ct);
+        await firstRead;
+        Assert.Equal(0, p.ReadBytes(buf));
+    }
+
     [Fact]
     public async Task DisposeWaitsForAReadInProgressAndLaterReadsReturnNothing()
     {

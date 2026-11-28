@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Globalization;
 using Avalonia;
 using Avalonia.Controls;
@@ -76,24 +77,61 @@ public sealed class WaveformView : Control
 
     public WaveformView() => Cursor = new Cursor(StandardCursorType.Hand);
 
+    /// <summary>Shortest gap between seeks while dragging.</summary>
+    internal static readonly TimeSpan SeekInterval = TimeSpan.FromMilliseconds(50);
+
+    /// <summary>The time source for throttling; tests replace it.</summary>
+    internal Func<TimeSpan> Clock { get; set; } = () => Stopwatch.GetElapsedTime(0);
+
+    // Every seek makes the decoder reposition, which is slow enough on a phone that
+    // one per pointer move would leave the deck silent for most of a drag. So moves
+    // are spaced out, and the last one held back is sent on release.
+    private TimeSpan _lastSeek;
+    private double? _heldX;
+
     protected override void OnPointerPressed(PointerPressedEventArgs e)
     {
         base.OnPointerPressed(e);
-        RaiseSeek(e.GetPosition(this).X);
+        _heldX = null;
+        SeekNow(e.GetPosition(this).X);
         e.Pointer.Capture(this);
     }
 
     protected override void OnPointerMoved(PointerEventArgs e)
     {
         base.OnPointerMoved(e);
-        if (Equals(e.Pointer.Captured, this))
-            RaiseSeek(e.GetPosition(this).X);
+        if (!Equals(e.Pointer.Captured, this)) return;
+        double x = e.GetPosition(this).X;
+        if (Clock() - _lastSeek >= SeekInterval) SeekNow(x);
+        else _heldX = x;
     }
 
     protected override void OnPointerReleased(PointerReleasedEventArgs e)
     {
         base.OnPointerReleased(e);
+        EndDrag();
         e.Pointer.Capture(null);
+    }
+
+    // A capture can be lost without a release (focus change, the window closing), and
+    // the held position would otherwise never be sent.
+    protected override void OnPointerCaptureLost(PointerCaptureLostEventArgs e)
+    {
+        base.OnPointerCaptureLost(e);
+        EndDrag();
+    }
+
+    private void EndDrag()
+    {
+        if (_heldX is { } x) SeekNow(x);
+        _heldX = null;
+    }
+
+    private void SeekNow(double x)
+    {
+        _lastSeek = Clock();
+        _heldX = null;
+        RaiseSeek(x);
     }
 
     private void RaiseSeek(double x)

@@ -1,3 +1,4 @@
+using Microsoft.Win32.SafeHandles;
 using SoundFlow.Structs;
 using SoundFlow.Backends.MiniAudio;
 using SoundFlow.Components;
@@ -20,6 +21,16 @@ internal sealed class SoundFlowDeck : IDeck
     private float _tempo = 1f;
     private bool _muted;
     private readonly CueTap _tap;
+
+    // Two, not one: DequeueNext prefetches the following track before its caller
+    // Loads the dequeued one, so a single slot would always evict the track about to load.
+    // RetainPrepared is what normally frees a slot; eviction is only the backstop.
+    private const int MaxPrepared = 2;
+    private static readonly TimeSpan OpenDisposeTimeout = TimeSpan.FromSeconds(2);
+    private readonly List<PreparedChain> _prepared = [];   // least recently asked for first
+    // Every open running, including evicted ones no longer in _prepared: Dispose must outlast them all.
+    private readonly List<PreparedChain> _opening = [];
+    private bool _disposed;
 
     /// <param name="format">What to decode to: the rate the output device actually opened at.</param>
     public SoundFlowDeck(DeckId id, MiniAudioEngine? engine, SoundFlow.Components.Mixer? output, CueBus cueBus,
@@ -94,23 +105,166 @@ internal sealed class SoundFlowDeck : IDeck
             _player.Volume = _muted ? 0f : _volume;
     }
 
+    /// <summary>Called as each file is opened, so tests can count opens and hold one running.</summary>
+    internal Action<string>? OpeningHook { get; set; }
+
+    /// <summary>Called as a discarded open tears down its chain, so tests can hold it there.</summary>
+    internal Action<string>? TearingDownHook { get; set; }
+
+    /// <summary>What is prepared or being prepared, least recently asked for first.</summary>
+    internal IReadOnlyList<string> PreparedPaths
+    {
+        get { lock (_gate) return _prepared.ConvertAll(p => p.Path); }
+    }
+
+    internal TimeStretchProvider? LoadedProvider => _provider;
+
+    /// <summary>Kills a prepared chain's descriptor behind its stream's back, as pulled media does.</summary>
+    internal void ClosePreparedHandle(string path)
+    {
+        lock (_gate) _prepared.Find(p => p.Path == path)?.Chain?.Handle.Dispose();
+    }
+
+    public Task PrepareAsync(Track track, CancellationToken ct = default)
+    {
+        if (_engine is null) return Task.CompletedTask;
+        if (ct.IsCancellationRequested) return Task.FromCanceled(ct);
+
+        Task opening;
+        lock (_gate)
+        {
+            if (_disposed) return Task.CompletedTask;
+            PreparedChain? prepared = _prepared.Find(p => p.Path == track.Path);
+            if (prepared is null)
+            {
+                if (_prepared.Count == MaxPrepared) Discard(_prepared[0]);
+                PreparedChain added = prepared = new PreparedChain(track.Path);
+                _prepared.Add(added);
+                _opening.Add(added);
+                added.Opening = Task.Run(() => FinishOpening(added));
+            }
+            else
+            {
+                // Asked for again means still wanted: eviction must not treat it as the oldest.
+                _prepared.Remove(prepared);
+                _prepared.Add(prepared);
+            }
+            opening = prepared.Opening;
+        }
+        return opening.WaitAsync(ct);
+    }
+
+    /// <summary>
+    /// Runs on the pool and never faults, so nothing has to observe it. It has no
+    /// continuations either: <see cref="Dispose"/> can wait for it on the UI thread.
+    /// </summary>
+    private void FinishOpening(PreparedChain prepared)
+    {
+        lock (_gate)
+        {
+            if (prepared.Discarded)
+            {
+                _opening.Remove(prepared);
+                return;
+            }
+        }
+        Chain? chain = null;
+        try { chain = OpenChain(prepared.Path); }
+        catch { /* Load opens the file itself and reports what is wrong with it */ }
+
+        lock (_gate)
+        {
+            if (!prepared.Discarded)
+            {
+                _opening.Remove(prepared);
+                if (chain is null) _prepared.Remove(prepared);
+                prepared.Chain = chain;
+                return;
+            }
+        }
+        // Lost while it was opening: nobody else knows about this chain.
+        TearingDownHook?.Invoke(prepared.Path);
+        chain?.TryDispose();
+        // Only now: Dispose frees the engine once nothing here is running, and tearing down
+        // a decoder touches it. Not under the gate, which the UI thread takes.
+        lock (_gate) _opening.Remove(prepared);
+    }
+
+    /// <summary>Caller holds <see cref="_gate"/>. An open still running sees the flag and disposes its own chain.</summary>
+    private void Discard(PreparedChain prepared)
+    {
+        prepared.Discarded = true;
+        _prepared.Remove(prepared);
+        prepared.Chain?.TryDispose();
+        prepared.Chain = null;
+    }
+
+    public void RetainPrepared(IReadOnlyCollection<string> paths)
+    {
+        lock (_gate)
+            foreach (PreparedChain prepared in _prepared.ToArray())
+                if (!paths.Contains(prepared.Path)) Discard(prepared);
+    }
+
+    public void ReleasePrepared()
+    {
+        lock (_gate)
+            foreach (PreparedChain prepared in _prepared.ToArray()) Discard(prepared);
+    }
+
+    private Chain OpenChain(string path)
+    {
+        OpeningHook?.Invoke(path);
+        // Before the open, so a file changed in between mismatches rather than passes.
+        (long Size, DateTime WriteUtc)? stamp = Stat(path);
+        // Our own handle rather than the stream's: asking a FileStream for its handle makes it
+        // sync its buffer and file position, and by then a decoder has been reading through it.
+        SafeFileHandle handle = File.OpenHandle(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+        Stream stream;
+        try { stream = new FileStream(handle, FileAccess.Read); }
+        catch
+        {
+            handle.Dispose();
+            throw;
+        }
+        try
+        {
+            return new Chain(handle, stream, new TimeStretchProvider(
+                new StreamDataProvider(_engine!, _format, stream),
+                _format.Channels), stamp);
+        }
+        catch
+        {
+            stream.Dispose();
+            throw;
+        }
+    }
+
     public void Load(Track track)
     {
+        // An open of this track still running finishes sooner than a fresh one would.
+        // Waited for outside the gate, which the open needs in order to finish.
+        Task? opening;
+        lock (_gate) opening = _prepared.Find(p => p.Path == track.Path)?.Opening;
+        opening?.Wait();
+
         lock (_gate)
         {
             TearDownPlayer();
             Track = track;
 
             // With no audio context there is nothing to decode into; the track is
-            // still recorded so the UI shows what is cued up.
-            if (_engine is null) return;
+            // still recorded so the UI shows what is cued up. A disposed deck is the
+            // same, and its engine is about to be freed.
+            if (_engine is null || _disposed) return;
 
             try
             {
-                _stream = File.OpenRead(track.Path);
-                _provider = new TimeStretchProvider(
-                    new StreamDataProvider(_engine, _format, _stream),
-                    _format.Channels) { Speed = _tempo };
+                Chain chain = TakePrepared(track.Path) ?? OpenChain(track.Path);
+                _stream = chain.Stream;
+                _provider = chain.Provider;
+                // Set here, not when opened: the tempo may have moved since.
+                _provider.Speed = _tempo;
                 // The player stays at 1.0; the provider does the stretching, far cheaper.
                 _player = new SoundPlayer(_engine, _format, _provider)
                 {
@@ -129,6 +283,57 @@ internal sealed class SoundFlowDeck : IDeck
                 Track = null;
                 throw;
             }
+        }
+    }
+
+    /// <summary>Caller holds <see cref="_gate"/>. Taken out of the list, so no second Load can use it.</summary>
+    private Chain? TakePrepared(string path)
+    {
+        if (_prepared.Find(p => p.Path == path && p.Chain is not null) is not { } prepared) return null;
+        // On pulled media the descriptor is dead: reads fail, which the decoder reports as
+        // the end of the track, so a stale chain would "load" and then play nothing. Media
+        // that came back stats the same, so the descriptor has to be read as well. The open
+        // that replaces it throws the real error, or finds the new content.
+        if (Stat(path) is not { } now || now != prepared.Chain!.Stamp || !DescriptorReads(prepared.Chain.Handle))
+        {
+            Discard(prepared);
+            return null;
+        }
+        _prepared.Remove(prepared);
+        return prepared.Chain;
+    }
+
+    /// <summary>
+    /// Whether a read through this descriptor still works. Goes round the stream's buffer and
+    /// leaves its position alone. Mid-file to miss that buffer, but this is best effort: opening
+    /// scans the whole file, so on Linux and Android a pass served from the page cache may be
+    /// the usual case rather than the rare one, and then a chain that cannot play passes.
+    /// </summary>
+    internal static bool DescriptorReads(SafeFileHandle handle)
+    {
+        Span<byte> probe = stackalloc byte[1];
+        try
+        {
+            RandomAccess.Read(handle, probe, RandomAccess.GetLength(handle) / 2);
+            return true;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or ObjectDisposedException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>Null when the file is gone or cannot be examined.</summary>
+    private static (long Size, DateTime WriteUtc)? Stat(string path)
+    {
+        try
+        {
+            var file = new FileInfo(path);
+            return file.Exists ? (file.Length, file.LastWriteTimeUtc) : null;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            return null;
         }
     }
 
@@ -172,6 +377,39 @@ internal sealed class SoundFlowDeck : IDeck
 
     public void Dispose()
     {
-        lock (_gate) TearDownPlayer();
+        Task[] running;
+        lock (_gate)
+        {
+            _disposed = true;
+            TearDownPlayer();
+            foreach (PreparedChain prepared in _prepared.ToArray()) Discard(prepared);
+            running = _opening.ConvertAll(p => p.Opening).ToArray();
+        }
+        // The engine is freed right after this, and a decoder still opening against it
+        // would touch freed native memory. Outside the gate, which an open needs in order
+        // to finish; bounded, because a stuck disk must not hold the app open on exit.
+        Task.WaitAll(running, OpenDisposeTimeout);
+    }
+
+    /// <summary>A stream and the provider chain reading it, not yet given to a player.</summary>
+    /// <param name="Handle">What <see cref="Stream"/> reads through and owns, kept to probe it directly.</param>
+    /// <param name="Stamp">The file's size and write time when it was opened.</param>
+    private sealed record Chain(SafeFileHandle Handle, Stream Stream, TimeStretchProvider Provider, (long Size, DateTime WriteUtc)? Stamp)
+    {
+        /// <summary>Runs on paths that have nowhere to report a failure, and the file is lost either way.</summary>
+        public void TryDispose()
+        {
+            try { Provider.Dispose(); } catch { /* still close the file */ }
+            try { Stream.Dispose(); } catch { /* nothing useful to do */ }
+        }
+    }
+
+    /// <summary>One track opened or opening ahead of its Load. All but the task is guarded by <see cref="_gate"/>.</summary>
+    private sealed class PreparedChain(string path)
+    {
+        public string Path { get; } = path;
+        public Task Opening { get; set; } = Task.CompletedTask;
+        public Chain? Chain { get; set; }
+        public bool Discarded { get; set; }
     }
 }

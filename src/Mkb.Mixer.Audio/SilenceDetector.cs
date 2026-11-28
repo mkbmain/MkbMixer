@@ -17,17 +17,29 @@ public static class SilenceDetector
 
     public static (TimeSpan? FirstSound, TimeSpan? LastSound) Detect(AnalysisSignal signal)
     {
-        int window = Math.Max(1, (int)(signal.SampleRate * Window.TotalSeconds));
+        int window = WindowSamples(signal.SampleRate);
         int count = signal.Samples.Length / window;
+        var energy = new double[count];
+        for (int w = 0; w < count; w++)
+            energy[w] = TempoDetector.SumOfSquares(signal.Samples.AsSpan(w * window, window));
+        return Detect(energy, signal.SampleRate);
+    }
+
+    /// <summary>Samples per <see cref="Window"/> at <paramref name="sampleRate"/>.</summary>
+    public static int WindowSamples(int sampleRate) =>
+        Math.Max(1, (int)(sampleRate * Window.TotalSeconds));
+
+    /// <summary>Detects from the sum of squares of each whole window, so a streaming caller need not keep the signal.</summary>
+    public static (TimeSpan? FirstSound, TimeSpan? LastSound) Detect(ReadOnlySpan<double> windowEnergy, int sampleRate)
+    {
+        int window = WindowSamples(sampleRate);
+        int count = windowEnergy.Length;
         if (count == 0) return (null, null);
 
         var db = new double[count];
         for (int w = 0; w < count; w++)
         {
-            double sum = 0;
-            for (int i = w * window; i < (w + 1) * window; i++)
-                sum += (double)signal.Samples[i] * signal.Samples[i];
-            double rms = Math.Sqrt(sum / window);
+            double rms = Math.Sqrt(windowEnergy[w] / window);
             db[w] = rms <= 0 ? double.NegativeInfinity : 20 * Math.Log10(rms);
         }
 
@@ -40,6 +52,6 @@ public static class SilenceDetector
 
         return (At(first), At(end + 1));
 
-        TimeSpan At(int w) => TimeSpan.FromSeconds((double)w * window / signal.SampleRate);
+        TimeSpan At(int w) => TimeSpan.FromSeconds((double)w * window / sampleRate);
     }
 }
